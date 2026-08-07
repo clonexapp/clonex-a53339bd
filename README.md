@@ -1,24 +1,46 @@
 # Clonex
 
-crie essa aplicação chamada clonex, empresa de captura de videos por capacetes e celulares para embodied ai, e o aplitivativo é de controle de captura equipamentos etc , seja de mebros colaboradores ate o lider geral.  queestá no link ainda sem banco , mas respeitando toda hierarquia de fontes design system, telas tipos de acessos. Faça o prototipo simples mas so pra ver se vc vai entender como fazr e se vai respeitar
+Aplicação responsiva para controle de equipes, equipamentos, capturas de vídeo,
+metas e pagamentos em operações de coleta de dados para embodied AI.
 
-This project was built with [Lovable](https://lovable.dev).
+## Estado atual
 
-## Build with Lovable
+- Interface desktop e mobile.
+- Perfis de membro, sublíder e líder geral.
+- Dados de demonstração persistidos no `localStorage` do dispositivo.
+- Nenhuma credencial ou senha de demonstração no frontend.
+- Camada de repositório preparada para uma implementação Supabase.
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/c580d07b-73fc-40e5-a42b-14a5c1789100).
+Esta versão ainda não possui autenticação nem banco remoto. O seletor de perfil
+da entrada é exclusivamente uma demonstração dos níveis de acesso.
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
-
-## Development
-
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+## Desenvolvimento
 
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
+npm install
 npm run dev
 ```
+
+Validação completa:
+
+```sh
+npm run check
+```
+
+## Estrutura
+
+- `src/domain`: tipos e regras centrais.
+- `src/data`: dados iniciais da demonstração.
+- `src/repositories`: contrato de persistência e implementação local.
+- `src/state`: estado compartilhado e operações da aplicação.
+- `src/components/clonex`: telas e componentes visuais do produto.
+- `src/routes`: rotas do TanStack Start.
+
+## Próximo passo: Supabase
+
+Criar um `SupabaseAppRepository` que implemente `AppRepository`, configurar as
+tabelas com Row Level Security e substituir a implementação local no provider.
+As telas não precisam conhecer o cliente do Supabase.
+
+Este repositório continua conectado ao Lovable. Evite reescrever o histórico
+Git já publicado.
