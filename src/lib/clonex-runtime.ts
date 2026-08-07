@@ -30,5 +30,5 @@ export function loadClonex(): Promise<void> {
 type AnyComponent = (props: Record<string, unknown>) => React.ReactNode;
 
 export function g<T = AnyComponent>(name: string): T {
-  return (window as unknown as Record<string, T>)[name];
+  return (window as unknown as Record<string, T>)[name] as T;
 }
