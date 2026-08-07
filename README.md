@@ -1,14 +1,16 @@
-# Welcome to your Lovable project
+# Clonex
+
+crie essa aplicação chamada clonex, empresa de captura de videos por capacetes e celulares para embodied ai, e o aplitivativo é de controle de captura equipamentos etc , seja de mebros colaboradores ate o lider geral.  queestá no link ainda sem banco , mas respeitando toda hierarquia de fontes design system, telas tipos de acessos. Faça o prototipo simples mas so pra ver se vc vai entender como fazr e se vai respeitar
 
 This project was built with [Lovable](https://lovable.dev).
 
 ## Build with Lovable
 
-Open your project in the [Lovable editor](https://lovable.dev) and keep building.
+Continue developing this project in the [Lovable editor](https://lovable.dev/projects/c580d07b-73fc-40e5-a42b-14a5c1789100).
 
 - **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: connect the project to GitHub and every change made in Lovable is committed straight to your repository.
-- **Full ownership**: this code is yours. Push to your repository and your changes sync back into Lovable, ready for your next prompt.
+- **Stay in sync**: every change made in Lovable is committed straight to this repository.
+- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
 
 ## Development
 
@@ -20,10 +22,3 @@ cd <repository-name>
 npm i
 npm run dev
 ```
-
-## Built with
-
-- TanStack Start
-- TypeScript
-- React
-- Tailwind CSS
