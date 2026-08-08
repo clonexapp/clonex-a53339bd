@@ -1,4 +1,5 @@
 import { Check, ChevronDown, ChevronUp, Clock3, Plus, X } from "lucide-react";
+import { useState } from "react";
 
 import type { AppData, MetricSource, Role } from "@/domain/types";
 import { formatDate, formatHours, formatMoney } from "@/lib/formatters";
@@ -9,6 +10,7 @@ import {
   reportScopeFor,
 } from "@/lib/reporting";
 import { useAppData } from "@/state/use-app-data";
+import { GoalBattery } from "./goal-battery";
 import { Card, EmptyState, Progress, StatCard, StatusBadge } from "./dashboard-ui";
 
 interface ScreenProps {
@@ -16,6 +18,7 @@ interface ScreenProps {
   role: Role;
   onAddCapture(): void;
   onAddEquipment(): void;
+  onAddPayment?(): void;
   onOpenSource(source: MetricSource): void;
 }
 
@@ -34,7 +37,10 @@ export function OverviewScreen({ data, role, onAddCapture, onOpenSource }: Scree
   const pendingSource = buildPendingReviewsSource(data, scope, "month");
 
   if (role === "membro" && member) {
-    const progress = member.goalHours ? (memberMinutes / 60 / member.goalHours) * 100 : 0;
+    const cycle = data.cycles.find(
+      (item) => item.personId === member.id && item.status === "ativo",
+    );
+    const goalHours = cycle?.goalHours ?? member.goalHours;
     return (
       <div className="cx-page-stack">
         <PageHeading
@@ -57,8 +63,8 @@ export function OverviewScreen({ data, role, onAddCapture, onOpenSource }: Scree
           />
           <StatCard
             label="Meta mensal"
-            value={`${member.goalHours}h`}
-            detail={`${Math.max(0, member.goalHours - memberMinutes / 60).toFixed(0)}h restantes`}
+            value={`${goalHours}h`}
+            detail={`${Math.max(0, goalHours - memberMinutes / 60).toFixed(0)}h restantes`}
             onClick={() => onOpenSource(quantitySource)}
           />
           <StatCard
@@ -74,13 +80,15 @@ export function OverviewScreen({ data, role, onAddCapture, onOpenSource }: Scree
               <span className="cx-eyebrow">Progresso do ciclo</span>
               <h2>Meta de produção</h2>
             </div>
-            <span className="cx-cycle">06 ago — 06 set</span>
+            <span className="cx-cycle">
+              {cycle
+                ? `${formatDate(`${cycle.startsAt}T12:00:00`)} — ${formatDate(`${cycle.endsAt}T12:00:00`)}`
+                : "Ciclo atual"}
+            </span>
           </div>
-          <Progress
-            value={progress}
-            label={`${formatHours(memberMinutes)} de ${member.goalHours}h`}
-            onClick={() => onOpenSource(quantitySource)}
-          />
+          <button className="cx-battery-button" onClick={() => onOpenSource(quantitySource)}>
+            <GoalBattery minutes={memberMinutes} goalHours={goalHours} />
+          </button>
         </Card>
         <RecentCaptures data={data} captures={memberCaptures.slice(0, 4)} />
       </div>
@@ -116,6 +124,29 @@ export function OverviewScreen({ data, role, onAddCapture, onOpenSource }: Scree
           onClick={() => onOpenSource(qualitySource)}
         />
       </div>
+      <Card className="cx-aggregate-battery">
+        <GoalBattery
+          minutes={data.captures
+            .filter(
+              (capture) =>
+                role === "lider" ||
+                data.people.find((person) => person.id === capture.personId)?.team === "JF-1",
+            )
+            .reduce((sum, capture) => sum + capture.minutes, 0)}
+          goalHours={data.people
+            .filter(
+              (person) => person.role === "membro" && (role === "lider" || person.team === "JF-1"),
+            )
+            .reduce(
+              (sum, person) =>
+                sum +
+                (data.cycles.find(
+                  (cycle) => cycle.personId === person.id && cycle.status === "ativo",
+                )?.goalHours ?? person.goalHours),
+              0,
+            )}
+        />
+      </Card>
       <div className="cx-two-columns">
         <Card>
           <div className="cx-card-heading">
@@ -318,6 +349,21 @@ export function PeopleScreen({ data, role }: ScreenProps) {
 }
 
 export function EquipmentScreen({ data, onAddEquipment }: ScreenProps) {
+  const [typeFilter, setTypeFilter] = useState<"all" | "capacete" | "celular">("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [ownerFilter, setOwnerFilter] = useState("all");
+  const [workloadFilter, setWorkloadFilter] = useState("all");
+  const filteredEquipment = data.equipment.filter((item) => {
+    const assignment = data.equipmentAssignments.find(
+      (candidate) => candidate.equipmentId === item.id && candidate.active,
+    );
+    return (
+      (typeFilter === "all" || item.type === typeFilter) &&
+      (statusFilter === "all" || item.status === statusFilter) &&
+      (ownerFilter === "all" || item.owner === ownerFilter) &&
+      (workloadFilter === "all" || assignment?.workload === workloadFilter)
+    );
+  });
   return (
     <div className="cx-page-stack">
       <PageHeading
@@ -345,9 +391,54 @@ export function EquipmentScreen({ data, onAddEquipment }: ScreenProps) {
           tone="warning"
         />
       </div>
+      <div className="cx-equipment-filters" aria-label="Filtros de equipamentos">
+        <div className="cx-filter-tabs">
+          {(["all", "capacete", "celular"] as const).map((value) => (
+            <button
+              key={value}
+              className={typeFilter === value ? "is-active" : ""}
+              onClick={() => setTypeFilter(value)}
+            >
+              {value === "all" ? "Todos" : value === "capacete" ? "Capacetes" : "Celulares"}
+            </button>
+          ))}
+        </div>
+        <select
+          aria-label="Filtrar por situação"
+          value={statusFilter}
+          onChange={(event) => setStatusFilter(event.target.value)}
+        >
+          <option value="all">Todas as situações</option>
+          <option value="disponivel">Disponíveis</option>
+          <option value="em_uso">Em uso</option>
+          <option value="manutencao">Manutenção</option>
+        </select>
+        <select
+          aria-label="Filtrar por proprietário"
+          value={ownerFilter}
+          onChange={(event) => setOwnerFilter(event.target.value)}
+        >
+          <option value="all">Todos os proprietários</option>
+          <option value="clonex">Clonex</option>
+          <option value="proprio">Próprio</option>
+        </select>
+        <select
+          aria-label="Filtrar por jornada"
+          value={workloadFilter}
+          onChange={(event) => setWorkloadFilter(event.target.value)}
+        >
+          <option value="all">Full e part time</option>
+          <option value="full_time">Full time</option>
+          <option value="part_time">Part time</option>
+        </select>
+      </div>
       <div className="cx-equipment-grid">
-        {data.equipment.map((item) => {
+        {filteredEquipment.map((item) => {
           const person = data.people.find((candidate) => candidate.id === item.assignedTo);
+          const assignment = data.equipmentAssignments.find(
+            (candidate) => candidate.equipmentId === item.id && candidate.active,
+          );
+          const company = data.companies.find((candidate) => candidate.id === person?.companyId);
           return (
             <Card key={item.id} className="cx-equipment-card">
               <div className="cx-equipment-icon">
@@ -371,6 +462,12 @@ export function EquipmentScreen({ data, onAddEquipment }: ScreenProps) {
                       ? "Patrimônio Clonex"
                       : "Equipamento próprio"}
                 </p>
+                {assignment ? (
+                  <small className="cx-equipment-allocation">
+                    {assignment.workload === "full_time" ? "Full time" : "Part time"}
+                    {company ? ` · ${company.name}` : ""}
+                  </small>
+                ) : null}
               </div>
               <StatusBadge status={item.status} />
             </Card>
@@ -381,7 +478,7 @@ export function EquipmentScreen({ data, onAddEquipment }: ScreenProps) {
   );
 }
 
-export function FinanceScreen({ data }: ScreenProps) {
+export function FinanceScreen({ data, onAddPayment }: ScreenProps) {
   const paid = data.payments
     .filter((payment) => payment.status === "pago")
     .reduce((sum, payment) => sum + payment.amount, 0);
@@ -394,6 +491,13 @@ export function FinanceScreen({ data }: ScreenProps) {
         eyebrow="Financeiro"
         title="Pagamentos"
         description="Valores calculados a partir das horas registradas."
+        action={
+          onAddPayment ? (
+            <button className="cx-button" onClick={onAddPayment}>
+              <Plus size={17} /> Registrar pagamento
+            </button>
+          ) : undefined
+        }
       />
       <div className="cx-stats-grid">
         <StatCard
@@ -451,7 +555,8 @@ export function GoalsScreen({ data }: ScreenProps) {
   const minutes = data.captures
     .filter((capture) => capture.personId === member.id)
     .reduce((sum, capture) => sum + capture.minutes, 0);
-  const progress = member.goalHours ? (minutes / 60 / member.goalHours) * 100 : 0;
+  const cycle = data.cycles.find((item) => item.personId === member.id && item.status === "ativo");
+  const goalHours = cycle?.goalHours ?? member.goalHours;
   return (
     <div className="cx-page-stack">
       <PageHeading
@@ -461,9 +566,9 @@ export function GoalsScreen({ data }: ScreenProps) {
       />
       <Card className="cx-goal-hero">
         <span className="cx-eyebrow">Meta atual</span>
-        <strong>{member.goalHours} horas</strong>
+        <strong>{goalHours} horas</strong>
         <p>Você já registrou {formatHours(minutes)} neste ciclo.</p>
-        <Progress value={progress} label="Progresso mensal" />
+        <GoalBattery minutes={minutes} goalHours={goalHours} />
       </Card>
       <Card>
         <div className="cx-card-heading">
@@ -475,9 +580,7 @@ export function GoalsScreen({ data }: ScreenProps) {
         <div className="cx-rhythm">
           <Clock3 size={20} />
           <div>
-            <strong>
-              {Math.max(0, (member.goalHours - minutes / 60) / 20).toFixed(1)}h por dia útil
-            </strong>
+            <strong>{Math.max(0, (goalHours - minutes / 60) / 20).toFixed(1)}h por dia útil</strong>
             <p>Estimativa para concluir a meta nos próximos 20 dias.</p>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
+  AlertTriangle,
   BarChart3,
   Bell,
   Camera,
@@ -15,6 +16,7 @@ import {
   ScrollText,
   RotateCcw,
   Users,
+  UserRound,
   X,
 } from "lucide-react";
 
@@ -27,12 +29,27 @@ import {
   FinanceScreen,
   GoalsScreen,
   OverviewScreen,
-  PeopleScreen,
 } from "@/components/clonex/screens";
 import { MetricSourcePanel } from "@/components/clonex/metric-source-panel";
 import { ReportsScreen } from "@/components/clonex/reports-screen";
+import {
+  CompanyDialog,
+  MemberDetailScreen,
+  PendingScreen,
+  PeopleOperationsScreen,
+} from "@/components/clonex/operations-screens";
+import { MemberRegistrationDialog, PaymentDialog } from "@/components/clonex/operations-dialogs";
 
-type TabKey = "overview" | "captures" | "goals" | "people" | "equipment" | "finance" | "reports";
+type TabKey =
+  | "overview"
+  | "captures"
+  | "goals"
+  | "profile"
+  | "people"
+  | "equipment"
+  | "finance"
+  | "reports"
+  | "pending";
 
 interface NavItem {
   key: TabKey;
@@ -52,6 +69,7 @@ const NAVIGATION: Record<Role, NavItem[]> = {
     { key: "captures", label: "Capturas", icon: Camera },
     { key: "goals", label: "Metas", icon: Flag },
     { key: "equipment", label: "Equipamentos", icon: HardHat },
+    { key: "profile", label: "Perfil", icon: UserRound },
   ],
   subleader: [
     { key: "overview", label: "Visão geral", icon: BarChart3 },
@@ -68,6 +86,7 @@ const NAVIGATION: Record<Role, NavItem[]> = {
     { key: "equipment", label: "Equipamentos", icon: HardHat },
     { key: "finance", label: "Financeiro", icon: CircleDollarSign },
     { key: "reports", label: "Relatórios", icon: ScrollText },
+    { key: "pending", label: "Pendências", icon: AlertTriangle },
   ],
 };
 
@@ -82,6 +101,10 @@ function ClonexWorkspace() {
   const [howOpen, setHowOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [metricSource, setMetricSource] = useState<MetricSource | null>(null);
+  const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [memberRegistrationOpen, setMemberRegistrationOpen] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
 
   if (!data) return <LoadingScreen />;
   if (!role) return <AccessScreen onEnter={setRole} />;
@@ -90,7 +113,9 @@ function ClonexWorkspace() {
   const mobilePrimaryNav =
     role === "membro"
       ? nav
-      : nav.filter((item) => item.key !== "finance" && item.key !== "reports");
+      : nav.filter(
+          (item) => item.key !== "finance" && item.key !== "reports" && item.key !== "pending",
+        );
   const notices = data.notices.filter((notice) => notice.role === role);
   const unread = notices.filter((notice) => !notice.read).length;
 
@@ -98,6 +123,7 @@ function ClonexWorkspace() {
     setRole(nextRole);
     setTab("overview");
     setMobileMenu(false);
+    setSelectedPersonId(null);
   }
 
   const screenProps = {
@@ -141,6 +167,7 @@ function ClonexWorkspace() {
               className={tab === item.key ? "is-active" : ""}
               onClick={() => {
                 setTab(item.key);
+                setSelectedPersonId(null);
                 setMobileMenu(false);
               }}
             >
@@ -241,10 +268,45 @@ function ClonexWorkspace() {
           {tab === "overview" && <OverviewScreen {...screenProps} />}
           {tab === "captures" && <CapturesScreen {...screenProps} />}
           {tab === "goals" && <GoalsScreen {...screenProps} />}
-          {tab === "people" && <PeopleScreen {...screenProps} />}
-          {tab === "equipment" && <EquipmentScreen {...screenProps} />}
-          {tab === "finance" && <FinanceScreen {...screenProps} />}
-          {tab === "reports" && role !== "membro" && (
+          {selectedPersonId ? (
+            <MemberDetailScreen
+              data={data}
+              personId={selectedPersonId}
+              role={role}
+              onBack={() => setSelectedPersonId(null)}
+            />
+          ) : null}
+          {!selectedPersonId && tab === "people" && (
+            <PeopleOperationsScreen
+              data={data}
+              role={role}
+              onSelectPerson={setSelectedPersonId}
+              onSelectCompany={setSelectedCompanyId}
+              onAddPerson={() => setMemberRegistrationOpen(true)}
+            />
+          )}
+          {!selectedPersonId && tab === "profile" && (
+            <MemberDetailScreen
+              data={data}
+              personId="p1"
+              role={role}
+              onBack={() => setTab("overview")}
+            />
+          )}
+          {!selectedPersonId && tab === "equipment" && <EquipmentScreen {...screenProps} />}
+          {!selectedPersonId && tab === "finance" && (
+            <FinanceScreen {...screenProps} onAddPayment={() => setPaymentOpen(true)} />
+          )}
+          {!selectedPersonId && tab === "pending" && role === "lider" && (
+            <PendingScreen
+              data={data}
+              onSelectPerson={(id) => {
+                setSelectedPersonId(id);
+                setTab("people");
+              }}
+            />
+          )}
+          {!selectedPersonId && tab === "reports" && role !== "membro" && (
             <ReportsScreen data={data} role={role} onOpenSource={setMetricSource} />
           )}
         </main>
@@ -254,7 +316,10 @@ function ClonexWorkspace() {
             <button
               key={item.key}
               className={tab === item.key ? "is-active" : ""}
-              onClick={() => setTab(item.key)}
+              onClick={() => {
+                setTab(item.key);
+                setSelectedPersonId(null);
+              }}
             >
               <item.icon size={20} />
               <span>{item.label}</span>
@@ -262,7 +327,9 @@ function ClonexWorkspace() {
           ))}
           {role !== "membro" ? (
             <button
-              className={tab === "finance" || tab === "reports" ? "is-active" : ""}
+              className={
+                tab === "finance" || tab === "reports" || tab === "pending" ? "is-active" : ""
+              }
               onClick={() => setMoreOpen(true)}
             >
               <MoreHorizontal size={20} />
@@ -277,9 +344,11 @@ function ClonexWorkspace() {
       {howOpen && <HowItWorksDialog role={role} onClose={() => setHowOpen(false)} />}
       {moreOpen && (
         <MoreDialog
+          role={role}
           activeTab={tab}
           onSelect={(nextTab) => {
             setTab(nextTab);
+            setSelectedPersonId(null);
             setMoreOpen(false);
           }}
           onClose={() => setMoreOpen(false)}
@@ -292,29 +361,44 @@ function ClonexWorkspace() {
           onClose={() => setMetricSource(null)}
         />
       )}
+      {selectedCompanyId ? (
+        <CompanyDialog
+          data={data}
+          companyId={selectedCompanyId}
+          onClose={() => setSelectedCompanyId(null)}
+          onSelectPerson={(id) => {
+            setSelectedCompanyId(null);
+            setSelectedPersonId(id);
+          }}
+        />
+      ) : null}
+      {memberRegistrationOpen ? (
+        <MemberRegistrationDialog role={role} onClose={() => setMemberRegistrationOpen(false)} />
+      ) : null}
+      {paymentOpen ? <PaymentDialog role={role} onClose={() => setPaymentOpen(false)} /> : null}
     </div>
   );
 }
 
 function AccessScreen({ onEnter }: { onEnter(role: Role): void }) {
-  const roles: { key: Role; title: string; description: string; icon: typeof Home }[] = [
+  const roles: { key: Role; title: string; description: string; image: string }[] = [
     {
       key: "membro",
       title: "Membro",
       description: "Registre capturas, acompanhe metas e equipamentos.",
-      icon: Camera,
+      image: "/images/clonex-member-access-3d.png",
     },
     {
       key: "subleader",
       title: "Sublíder",
       description: "Gerencie pessoas, revise capturas e acompanhe a equipe.",
-      icon: Users,
+      image: "/images/clonex-subleader-access-3d.png",
     },
     {
       key: "lider",
       title: "Líder geral",
       description: "Visualize toda a operação, inventário e financeiro.",
-      icon: BarChart3,
+      image: "/images/clonex-leader-access-3d.png",
     },
   ];
   return (
@@ -334,8 +418,8 @@ function AccessScreen({ onEnter }: { onEnter(role: Role): void }) {
       <div className="cx-role-grid">
         {roles.map((item) => (
           <button key={item.key} onClick={() => onEnter(item.key)}>
-            <span className="cx-role-icon">
-              <item.icon />
+            <span className="cx-role-icon cx-role-icon-3d">
+              <img src={item.image} alt="" loading="eager" />
             </span>
             <span>
               <strong>{item.title}</strong>
@@ -554,10 +638,12 @@ function HowItWorksDialog({ role, onClose }: { role: Role; onClose(): void }) {
 }
 
 function MoreDialog({
+  role,
   activeTab,
   onSelect,
   onClose,
 }: {
+  role: Role;
   activeTab: TabKey;
   onSelect(tab: TabKey): void;
   onClose(): void;
@@ -565,9 +651,16 @@ function MoreDialog({
   const items: NavItem[] = [
     { key: "finance", label: "Financeiro", icon: CircleDollarSign },
     { key: "reports", label: "Relatórios", icon: ScrollText },
+    ...(role === "lider"
+      ? [{ key: "pending" as const, label: "Pendências", icon: AlertTriangle }]
+      : []),
   ];
   return (
-    <Dialog title="Mais áreas" description="Acesse financeiro e relatórios." onClose={onClose}>
+    <Dialog
+      title="Mais áreas"
+      description="Acesse financeiro, relatórios e prioridades."
+      onClose={onClose}
+    >
       <div className="cx-more-grid">
         {items.map((item) => (
           <button
@@ -581,7 +674,9 @@ function MoreDialog({
               <small>
                 {item.key === "reports"
                   ? "Quantidade, previsibilidade e qualidade"
-                  : "Pagamentos realizados e previstos"}
+                  : item.key === "pending"
+                    ? "Ações, riscos e alertas importantes"
+                    : "Pagamentos realizados e previstos"}
               </small>
             </span>
             <ChevronRight size={17} />

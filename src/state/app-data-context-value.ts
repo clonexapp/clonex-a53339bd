@@ -1,11 +1,35 @@
 import { createContext } from "react";
 
-import type { AppData, CaptureStatus, NewCapture, NewEquipment, Role } from "@/domain/types";
+import type {
+  AppData,
+  CaptureStatus,
+  NewCapture,
+  NewCompany,
+  NewEquipment,
+  NewPayment,
+  NewPerson,
+  Role,
+} from "@/domain/types";
 
 export interface AppDataContextValue {
   data: AppData | null;
   addCapture(input: NewCapture): void;
   addEquipment(input: NewEquipment, actorRole: Role): void;
+  addCompany(input: NewCompany, actorRole: Role): string;
+  addPerson(input: NewPerson, actorRole: Role): void;
+  addConsent(
+    personId: string,
+    file: File,
+    validUntil: string | undefined,
+    actorRole: Role,
+  ): Promise<void>;
+  downloadConsent(storageKey: string, fileName: string): Promise<boolean>;
+  addPayment(input: NewPayment, actorRole: Role): void;
+  updateCycle(
+    id: string,
+    input: { startsAt: string; endsAt: string; goalHours: number; targetDaysPerWeek: number },
+    actorRole: Role,
+  ): void;
   updateCaptureStatus(id: string, status: CaptureStatus, actorRole: Role): void;
   updatePersonGoal(id: string, goalHours: number, actorRole: Role): void;
   markNoticesRead(role: Role): void;

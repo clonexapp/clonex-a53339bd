@@ -3,11 +3,23 @@ export type Role = "membro" | "subleader" | "lider";
 export type CaptureStatus = "pendente" | "aprovado" | "reprovado";
 export type EquipmentStatus = "disponivel" | "em_uso" | "manutencao";
 export type EquipmentType = "capacete" | "celular";
+export type WorkloadType = "full_time" | "part_time";
+export type AffiliationType = "autonomo" | "empresa";
+export type CycleStatus = "ativo" | "encerrado" | "planejado";
 export type ReportPeriod = "week" | "month";
 export type ReportMetric =
   "quantity" | "predictability" | "quality" | "active_people" | "pending_reviews";
 
-export type AuditEntity = "capture" | "person" | "equipment" | "payment" | "goal";
+export type AuditEntity =
+  | "capture"
+  | "person"
+  | "equipment"
+  | "payment"
+  | "goal"
+  | "company"
+  | "cycle"
+  | "consent"
+  | "assignment";
 
 export interface ReportScope {
   kind: "person" | "team" | "city";
@@ -23,6 +35,32 @@ export interface Person {
   goalHours: number;
   targetDaysPerWeek: number;
   active: boolean;
+  email: string;
+  phone: string;
+  affiliation: AffiliationType;
+  companyId?: string;
+  workload: WorkloadType;
+  hourlyRate: number;
+}
+
+export interface Company {
+  id: string;
+  name: string;
+  city: string;
+  cnpj?: string;
+  contact?: string;
+  logoStorageKey?: string;
+  active: boolean;
+}
+
+export interface MemberCycle {
+  id: string;
+  personId: string;
+  startsAt: string;
+  endsAt: string;
+  goalHours: number;
+  targetDaysPerWeek: number;
+  status: CycleStatus;
 }
 
 export interface Capture {
@@ -46,6 +84,37 @@ export interface Equipment {
   assignedTo?: string;
 }
 
+export interface EquipmentAssignment {
+  id: string;
+  equipmentId: string;
+  personId: string;
+  workload: WorkloadType;
+  startsAt: string;
+  endsAt?: string;
+  active: boolean;
+}
+
+export interface ConsentRecord {
+  id: string;
+  personId: string;
+  storageKey: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+  uploadedBy: string;
+  validUntil?: string;
+  active: boolean;
+}
+
+export interface PolicyAcceptance {
+  id: string;
+  personId: string;
+  policy: "lgpd" | "privacidade" | "termos_de_uso";
+  version: string;
+  acceptedAt: string;
+}
+
 export interface Payment {
   id: string;
   personId: string;
@@ -53,6 +122,12 @@ export interface Payment {
   hours: number;
   amount: number;
   status: "previsto" | "pago";
+  cycleId?: string;
+  captureIds: string[];
+  equipmentIds: string[];
+  hourlyRate: number;
+  registeredAt: string;
+  registeredBy: string;
 }
 
 export interface Notice {
@@ -105,8 +180,13 @@ export interface MetricSource {
 
 export interface AppData {
   people: Person[];
+  companies: Company[];
+  cycles: MemberCycle[];
   captures: Capture[];
   equipment: Equipment[];
+  equipmentAssignments: EquipmentAssignment[];
+  consentRecords: ConsentRecord[];
+  policyAcceptances: PolicyAcceptance[];
   payments: Payment[];
   notices: Notice[];
   auditEvents: AuditEvent[];
@@ -122,4 +202,38 @@ export interface NewEquipment {
   type: EquipmentType;
   model: string;
   owner: "clonex" | "proprio";
+}
+
+export interface NewPerson {
+  name: string;
+  email: string;
+  phone: string;
+  team: string;
+  city: string;
+  affiliation: AffiliationType;
+  companyId?: string;
+  workload: WorkloadType;
+  hourlyRate: number;
+  goalHours: number;
+  targetDaysPerWeek: number;
+  cycleStartsAt: string;
+  equipmentIds: string[];
+}
+
+export interface NewCompany {
+  name: string;
+  city: string;
+  cnpj?: string;
+  contact?: string;
+}
+
+export interface NewPayment {
+  personId: string;
+  cycleId?: string;
+  hours: number;
+  amount: number;
+  hourlyRate: number;
+  captureIds: string[];
+  equipmentIds: string[];
+  status: "previsto" | "pago";
 }
