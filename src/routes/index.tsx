@@ -12,8 +12,11 @@ export const Route = createFileRoute("/")({
       { name: "description", content: description },
       { property: "og:title", content: title },
       { property: "og:description", content: description },
+      { property: "og:image", content: "https://clonexapp.lovable.app/og-clonex.png" },
+      { name: "twitter:image", content: "https://clonexapp.lovable.app/og-clonex.png" },
     ],
   }),
+
   component: Index,
 });
 
