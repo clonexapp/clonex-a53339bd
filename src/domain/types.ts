@@ -8,7 +8,16 @@ export type AffiliationType = "autonomo" | "empresa";
 export type CycleStatus = "ativo" | "encerrado" | "planejado";
 export type ReportPeriod = "week" | "month";
 export type ReportMetric =
-  "quantity" | "predictability" | "quality" | "active_people" | "pending_reviews";
+  | "quantity"
+  | "predictability"
+  | "quality"
+  | "active_people"
+  | "pending_reviews"
+  | "consent_coverage";
+
+export type AuditCategory =
+  "captura" | "pessoa" | "equipamento" | "consentimento" | "meta" | "pagamento" | "ciclo";
+export type ConsentMode = "upload" | "fisico" | "digital";
 
 export type AuditEntity =
   | "capture"
@@ -41,6 +50,16 @@ export interface Person {
   companyId?: string;
   workload: WorkloadType;
   hourlyRate: number;
+  serviceName: string;
+  supervisorId?: string | undefined;
+  minuteCode: string;
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  city: string;
+  supervisorId: string;
 }
 
 export interface Company {
@@ -73,6 +92,7 @@ export interface Capture {
   recordedAt: string;
   reviewedAt?: string;
   reviewedBy?: string;
+  minuteReference?: string;
 }
 
 export interface Equipment {
@@ -82,6 +102,10 @@ export interface Equipment {
   owner: "clonex" | "proprio";
   status: EquipmentStatus;
   assignedTo?: string;
+  size?: string;
+  color: string;
+  batchId: string;
+  assetCode: string;
 }
 
 export interface EquipmentAssignment {
@@ -97,14 +121,17 @@ export interface EquipmentAssignment {
 export interface ConsentRecord {
   id: string;
   personId: string;
-  storageKey: string;
-  fileName: string;
-  mimeType: string;
-  size: number;
+  mode: ConsentMode;
+  storageKey?: string | undefined;
+  fileName?: string | undefined;
+  mimeType?: string | undefined;
+  size?: number | undefined;
   uploadedAt: string;
   uploadedBy: string;
   validUntil?: string;
   active: boolean;
+  signedAt: string;
+  signedBy: string;
 }
 
 export interface PolicyAcceptance {
@@ -148,6 +175,23 @@ export interface AuditEvent {
   actorRole: Role;
   occurredAt: string;
   details: string;
+  category: AuditCategory;
+  team?: string | undefined;
+  targetRole?: Role | undefined;
+  targetPersonId?: string | undefined;
+}
+
+export interface AppAccessEvent {
+  id: string;
+  personId: string;
+  accessedAt: string;
+}
+
+export interface ActivitySeen {
+  id: string;
+  role: Role;
+  eventId: string;
+  seenAt: string;
 }
 
 export interface MetricHistoryItem {
@@ -180,6 +224,7 @@ export interface MetricSource {
 
 export interface AppData {
   people: Person[];
+  teams: Team[];
   companies: Company[];
   cycles: MemberCycle[];
   captures: Capture[];
@@ -190,6 +235,8 @@ export interface AppData {
   payments: Payment[];
   notices: Notice[];
   auditEvents: AuditEvent[];
+  accessEvents: AppAccessEvent[];
+  activitySeen: ActivitySeen[];
 }
 
 export interface NewCapture {
@@ -202,6 +249,9 @@ export interface NewEquipment {
   type: EquipmentType;
   model: string;
   owner: "clonex" | "proprio";
+  size?: string;
+  color: string;
+  quantity: number;
 }
 
 export interface NewPerson {
@@ -218,6 +268,9 @@ export interface NewPerson {
   targetDaysPerWeek: number;
   cycleStartsAt: string;
   equipmentIds: string[];
+  serviceName: string;
+  supervisorId?: string;
+  minuteCode: string;
 }
 
 export interface NewCompany {

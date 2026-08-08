@@ -13,13 +13,15 @@ import {
 
 import { Card, EmptyState, StatusBadge } from "@/components/clonex/dashboard-ui";
 import { GoalBattery } from "@/components/clonex/goal-battery";
+import { Gamification } from "@/components/clonex/management-screens";
 import type { AppData, Role } from "@/domain/types";
 import { formatDate, formatHours, formatMoney } from "@/lib/formatters";
+import { approvedMinutes, memberProjection } from "@/lib/operations";
 import { useAppData } from "@/state/use-app-data";
 
 function personMinutes(data: AppData, personId: string) {
   return data.captures
-    .filter((capture) => capture.personId === personId)
+    .filter((capture) => capture.personId === personId && capture.status === "aprovado")
     .reduce((sum, capture) => sum + capture.minutes, 0);
 }
 
@@ -130,13 +132,15 @@ export function MemberDetailScreen({
   personId,
   role,
   onBack,
+  onOpenCapture,
 }: {
   data: AppData;
   personId: string;
   role: Role;
   onBack(): void;
+  onOpenCapture?(id: string): void;
 }) {
-  const { addConsent, downloadConsent, updateCycle } = useAppData();
+  const { addConsent, addSignedConsent, downloadConsent, updateCycle } = useAppData();
   const [downloadError, setDownloadError] = useState(false);
   const person = data.people.find((item) => item.id === personId);
   if (!person) return <EmptyState>Membro não encontrado.</EmptyState>;
@@ -152,6 +156,7 @@ export function MemberDetailScreen({
     .at(-1);
   const captures = data.captures.filter((item) => item.personId === person.id);
   const payments = data.payments.filter((item) => item.personId === person.id);
+  const projection = memberProjection(data, person);
 
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -212,11 +217,22 @@ export function MemberDetailScreen({
             </p>
             <p>
               <strong>{person.email || "Não informado"}</strong>
-              <span>{person.phone || "Telefone não informado"}</span>
+              <span>E-mail de acesso futuro</span>
             </p>
             <p>
-              <strong>{formatMoney(person.hourlyRate)}/h</strong>
-              <span>Tarifa cadastrada</span>
+              <strong>{person.serviceName}</strong>
+              <span>Serviço cadastrado</span>
+            </p>
+            <p>
+              <strong>
+                {data.people.find((item) => item.id === person.supervisorId)?.name ??
+                  "Sublíder não definido"}
+              </strong>
+              <span>Sublíder responsável</span>
+            </p>
+            <p>
+              <strong>{person.minuteCode}</strong>
+              <span>Código individual Minute</span>
             </p>
           </div>
         </Card>
@@ -231,7 +247,29 @@ export function MemberDetailScreen({
                   {new Date(`${cycle.endsAt}T12:00:00`).toLocaleDateString("pt-BR")}
                 </strong>
               </div>
-              <GoalBattery minutes={personMinutes(data, person.id)} goalHours={cycle.goalHours} />
+              <GoalBattery minutes={approvedMinutes(data, person.id)} goalHours={cycle.goalHours} />
+              <div className="cx-projection-grid">
+                <span>
+                  <small>Ritmo diário</small>
+                  <strong>{projection.pace.toFixed(1)}h</strong>
+                </span>
+                <span>
+                  <small>Projeção</small>
+                  <strong>{projection.projection.toFixed(1)}h</strong>
+                </span>
+                <span>
+                  <small>Até 10h</small>
+                  <strong>{Math.max(0, 10 - projection.hours).toFixed(1)}h</strong>
+                </span>
+                <span>
+                  <small>Até 60h</small>
+                  <strong>{Math.max(0, 60 - projection.hours).toFixed(1)}h</strong>
+                </span>
+                <span>
+                  <small>Até a meta</small>
+                  <strong>{Math.max(0, projection.goal - projection.hours).toFixed(1)}h</strong>
+                </span>
+              </div>
               {role !== "membro" ? (
                 <form className="cx-cycle-form" onSubmit={saveCycle}>
                   <label>
@@ -313,21 +351,28 @@ export function MemberDetailScreen({
             <div className="cx-consent-record">
               <FileCheck2 size={24} />
               <div>
-                <strong>{consent.fileName}</strong>
+                <strong>
+                  {consent.fileName ??
+                    `Assinatura ${consent.mode === "fisico" ? "física" : "digital"}`}
+                </strong>
                 <span>
                   Registrado por {consent.uploadedBy} em {formatDate(consent.uploadedAt)}
                 </span>
               </div>
-              <button
-                aria-label="Baixar termo"
-                onClick={() =>
-                  void downloadConsent(consent.storageKey, consent.fileName).then((found) =>
-                    setDownloadError(!found),
-                  )
-                }
-              >
-                <Download size={18} />
-              </button>
+              {consent.storageKey && consent.fileName ? (
+                <button
+                  aria-label="Baixar termo"
+                  onClick={() =>
+                    consent.storageKey &&
+                    consent.fileName &&
+                    void downloadConsent(consent.storageKey, consent.fileName).then((found) =>
+                      setDownloadError(!found),
+                    )
+                  }
+                >
+                  <Download size={18} />
+                </button>
+              ) : null}
             </div>
           ) : (
             <EmptyState>Consentimento ainda não registrado.</EmptyState>
@@ -338,27 +383,39 @@ export function MemberDetailScreen({
             </p>
           ) : null}
           {role !== "membro" ? (
-            <form className="cx-consent-form" onSubmit={upload}>
-              <label>
-                Arquivo
-                <input
-                  required
-                  name="consent"
-                  type="file"
-                  accept="application/pdf,image/png,image/jpeg"
-                />
-              </label>
-              <label>
-                Validade opcional
-                <input name="validUntil" type="date" />
-              </label>
-              <button className="cx-button" type="submit">
-                Registrar termo
-              </button>
-            </form>
+            <>
+              <form className="cx-consent-form" onSubmit={upload}>
+                <label>
+                  Arquivo
+                  <input
+                    required
+                    name="consent"
+                    type="file"
+                    accept="application/pdf,image/png,image/jpeg"
+                  />
+                </label>
+                <label>
+                  Validade opcional
+                  <input name="validUntil" type="date" />
+                </label>
+                <button className="cx-button" type="submit">
+                  Registrar termo
+                </button>
+              </form>
+              <div className="cx-consent-signatures">
+                <span>Ou registrar assinatura:</span>
+                <button onClick={() => addSignedConsent(personId, "fisico", undefined, role)}>
+                  Física
+                </button>
+                <button onClick={() => addSignedConsent(personId, "digital", undefined, role)}>
+                  Digital
+                </button>
+              </div>
+            </>
           ) : null}
         </Card>
       </div>
+      <Gamification data={data} personId={person.id} />
       <Card>
         <div className="cx-card-heading">
           <div>
@@ -369,7 +426,11 @@ export function MemberDetailScreen({
         <div className="cx-member-history">
           <div>
             {captures.slice(0, 6).map((capture) => (
-              <article key={capture.id}>
+              <button
+                key={capture.id}
+                className="cx-history-button"
+                onClick={() => onOpenCapture?.(capture.id)}
+              >
                 <span>
                   <strong>{capture.activity}</strong>
                   <small>
@@ -377,7 +438,7 @@ export function MemberDetailScreen({
                   </small>
                 </span>
                 <StatusBadge status={capture.status} />
-              </article>
+              </button>
             ))}
           </div>
           <div>

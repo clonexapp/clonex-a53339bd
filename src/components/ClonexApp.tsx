@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
   AlertTriangle,
+  Activity,
   BarChart3,
   Bell,
   Camera,
@@ -9,6 +10,7 @@ import {
   Flag,
   HardHat,
   HelpCircle,
+  Lightbulb,
   Home,
   LogOut,
   Menu,
@@ -39,6 +41,14 @@ import {
   PeopleOperationsScreen,
 } from "@/components/clonex/operations-screens";
 import { MemberRegistrationDialog, PaymentDialog } from "@/components/clonex/operations-dialogs";
+import {
+  ActivitiesScreen,
+  CaptureDetailPanel,
+  ConsentKpis,
+  InsightsScreen,
+  LeaderOverview,
+  TeamPanel,
+} from "@/components/clonex/management-screens";
 
 type TabKey =
   | "overview"
@@ -49,7 +59,9 @@ type TabKey =
   | "equipment"
   | "finance"
   | "reports"
-  | "pending";
+  | "pending"
+  | "activities"
+  | "insights";
 
 interface NavItem {
   key: TabKey;
@@ -78,6 +90,8 @@ const NAVIGATION: Record<Role, NavItem[]> = {
     { key: "equipment", label: "Equipamentos", icon: HardHat },
     { key: "finance", label: "Financeiro", icon: CircleDollarSign },
     { key: "reports", label: "Relatórios", icon: ScrollText },
+    { key: "insights", label: "Insights", icon: Lightbulb },
+    { key: "activities", label: "Atividades", icon: Activity },
   ],
   lider: [
     { key: "overview", label: "Visão geral", icon: BarChart3 },
@@ -86,12 +100,13 @@ const NAVIGATION: Record<Role, NavItem[]> = {
     { key: "equipment", label: "Equipamentos", icon: HardHat },
     { key: "finance", label: "Financeiro", icon: CircleDollarSign },
     { key: "reports", label: "Relatórios", icon: ScrollText },
+    { key: "activities", label: "Atividades", icon: Activity },
     { key: "pending", label: "Pendências", icon: AlertTriangle },
   ],
 };
 
 function ClonexWorkspace() {
-  const { data, markNoticesRead, resetDemo } = useAppData();
+  const { data, markNoticesRead, recordAccess, resetDemo } = useAppData();
   const [role, setRole] = useState<Role | null>(null);
   const [tab, setTab] = useState<TabKey>("overview");
   const [mobileMenu, setMobileMenu] = useState(false);
@@ -105,19 +120,46 @@ function ClonexWorkspace() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [memberRegistrationOpen, setMemberRegistrationOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (role === "membro") recordAccess("p1");
+  }, [role, recordAccess]);
 
   if (!data) return <LoadingScreen />;
   if (!role) return <AccessScreen onEnter={setRole} />;
 
   const nav = NAVIGATION[role];
+  const currentUser =
+    role === "membro"
+      ? data.people.find((person) => person.id === "p1")
+      : role === "subleader"
+        ? data.people.find((person) => person.id === "p6")
+        : undefined;
   const mobilePrimaryNav =
     role === "membro"
       ? nav
       : nav.filter(
-          (item) => item.key !== "finance" && item.key !== "reports" && item.key !== "pending",
+          (item) =>
+            item.key !== "finance" &&
+            item.key !== "reports" &&
+            item.key !== "pending" &&
+            item.key !== "activities" &&
+            item.key !== "insights",
         );
   const notices = data.notices.filter((notice) => notice.role === role);
-  const unread = notices.filter((notice) => !notice.read).length;
+  const seenEvents = new Set(
+    data.activitySeen.filter((item) => item.role === role).map((item) => item.eventId),
+  );
+  const activityUnread =
+    role === "membro"
+      ? 0
+      : data.auditEvents.filter(
+          (event) =>
+            !seenEvents.has(event.id) && (role === "lider" || !event.team || event.team === "JF-1"),
+        ).length;
+  const unread = notices.filter((notice) => !notice.read).length + activityUnread;
 
   function switchRole(nextRole: Role) {
     setRole(nextRole);
@@ -132,6 +174,7 @@ function ClonexWorkspace() {
     onAddCapture: () => setCaptureOpen(true),
     onAddEquipment: () => setEquipmentOpen(true),
     onOpenSource: setMetricSource,
+    onOpenCapture: setSelectedCaptureId,
   };
 
   return (
@@ -252,20 +295,65 @@ function ClonexWorkspace() {
                 ) : (
                   <p className="cx-muted">Nenhuma notificação.</p>
                 )}
+                {role !== "membro" ? (
+                  <button
+                    className="cx-notice-all"
+                    onClick={() => {
+                      setNoticesOpen(false);
+                      setTab("activities");
+                    }}
+                  >
+                    Ver todas as atividades ({activityUnread} novas)
+                  </button>
+                ) : null}
               </div>
             )}
           </div>
-          <div className="cx-user-chip">
-            <span>RD</span>
+          <button
+            className="cx-user-chip"
+            onClick={() => {
+              if (role === "membro") setTab("profile");
+              else if (role === "subleader") setSelectedTeam("JF-1");
+              else setTab("overview");
+            }}
+            aria-label="Abrir perfil atual"
+          >
+            <span>
+              {role === "lider"
+                ? "MG"
+                : currentUser?.name
+                    .split(" ")
+                    .map((part) => part[0])
+                    .slice(0, 2)
+                    .join("")}
+            </span>
             <div>
-              <strong>Rafael Diniz</strong>
+              <strong>{role === "lider" ? "Matheus Gasparetto" : currentUser?.name}</strong>
               <small>{ROLE_LABELS[role]}</small>
             </div>
-          </div>
+          </button>
         </header>
 
         <main className="cx-content">
-          {tab === "overview" && <OverviewScreen {...screenProps} />}
+          {tab === "overview" && role !== "lider" && (
+            <>
+              <OverviewScreen {...screenProps} />
+              {role === "subleader" ? (
+                <div className="cx-overview-consents">
+                  <h2>Consentimentos da equipe</h2>
+                  <ConsentKpis
+                    data={data}
+                    members={data.people.filter(
+                      (person) => person.role === "membro" && person.team === "JF-1",
+                    )}
+                  />
+                </div>
+              ) : null}
+            </>
+          )}
+          {tab === "overview" && role === "lider" && (
+            <LeaderOverview data={data} onOpenTeam={setSelectedTeam} />
+          )}
           {tab === "captures" && <CapturesScreen {...screenProps} />}
           {tab === "goals" && <GoalsScreen {...screenProps} />}
           {selectedPersonId ? (
@@ -274,6 +362,7 @@ function ClonexWorkspace() {
               personId={selectedPersonId}
               role={role}
               onBack={() => setSelectedPersonId(null)}
+              onOpenCapture={setSelectedCaptureId}
             />
           ) : null}
           {!selectedPersonId && tab === "people" && (
@@ -291,6 +380,7 @@ function ClonexWorkspace() {
               personId="p1"
               role={role}
               onBack={() => setTab("overview")}
+              onOpenCapture={setSelectedCaptureId}
             />
           )}
           {!selectedPersonId && tab === "equipment" && <EquipmentScreen {...screenProps} />}
@@ -308,6 +398,26 @@ function ClonexWorkspace() {
           )}
           {!selectedPersonId && tab === "reports" && role !== "membro" && (
             <ReportsScreen data={data} role={role} onOpenSource={setMetricSource} />
+          )}
+          {!selectedPersonId && tab === "insights" && role === "subleader" && (
+            <InsightsScreen
+              data={data}
+              onOpenPerson={(id) => {
+                setSelectedPersonId(id);
+                setTab("people");
+              }}
+            />
+          )}
+          {!selectedPersonId && tab === "activities" && role !== "membro" && (
+            <ActivitiesScreen
+              data={data}
+              role={role}
+              onOpenCapture={setSelectedCaptureId}
+              onOpenPerson={(id) => {
+                setSelectedPersonId(id);
+                setTab("people");
+              }}
+            />
           )}
         </main>
 
@@ -328,7 +438,13 @@ function ClonexWorkspace() {
           {role !== "membro" ? (
             <button
               className={
-                tab === "finance" || tab === "reports" || tab === "pending" ? "is-active" : ""
+                tab === "finance" ||
+                tab === "reports" ||
+                tab === "pending" ||
+                tab === "activities" ||
+                tab === "insights"
+                  ? "is-active"
+                  : ""
               }
               onClick={() => setMoreOpen(true)}
             >
@@ -376,6 +492,25 @@ function ClonexWorkspace() {
         <MemberRegistrationDialog role={role} onClose={() => setMemberRegistrationOpen(false)} />
       ) : null}
       {paymentOpen ? <PaymentDialog role={role} onClose={() => setPaymentOpen(false)} /> : null}
+      {selectedCaptureId ? (
+        <CaptureDetailPanel
+          data={data}
+          captureId={selectedCaptureId}
+          onClose={() => setSelectedCaptureId(null)}
+        />
+      ) : null}
+      {selectedTeam ? (
+        <TeamPanel
+          data={data}
+          teamName={selectedTeam}
+          onClose={() => setSelectedTeam(null)}
+          onOpenPerson={(id) => {
+            setSelectedTeam(null);
+            setSelectedPersonId(id);
+            setTab("people");
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -511,10 +646,23 @@ function EquipmentDialog({ role, onClose }: { role: Role; onClose(): void }) {
   const [type, setType] = useState<EquipmentType>("capacete");
   const [model, setModel] = useState("");
   const [owner, setOwner] = useState<"clonex" | "proprio">("clonex");
+  const [color, setColor] = useState("Roxo");
+  const [size, setSize] = useState("M");
+  const [quantity, setQuantity] = useState(1);
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!model.trim()) return;
-    addEquipment({ type, model: model.trim(), owner }, role);
+    addEquipment(
+      {
+        type,
+        model: model.trim(),
+        owner,
+        color,
+        quantity,
+        ...(type === "capacete" ? { size } : {}),
+      },
+      role,
+    );
     onClose();
   }
   return (
@@ -532,7 +680,6 @@ function EquipmentDialog({ role, onClose }: { role: Role; onClose(): void }) {
             alt=""
           />
           <div>
-            <span className="cx-eyebrow">Visualização 3D</span>
             <strong>{type === "capacete" ? "Capacete" : "Celular"}</strong>
           </div>
         </div>
@@ -565,6 +712,44 @@ function EquipmentDialog({ role, onClose }: { role: Role; onClose(): void }) {
             required
           />
         </label>
+        <div className="cx-form-row">
+          {type === "capacete" ? (
+            <label>
+              Tamanho
+              <select value={size} onChange={(event) => setSize(event.target.value)}>
+                <option>P</option>
+                <option>M</option>
+                <option>G</option>
+                <option>GG</option>
+              </select>
+            </label>
+          ) : null}
+          <label>
+            Cor
+            <input value={color} onChange={(event) => setColor(event.target.value)} required />
+          </label>
+        </div>
+        <div className="cx-quantity-control">
+          <span>Quantidade do lote</span>
+          <div>
+            <button
+              type="button"
+              onClick={() => setQuantity((value) => Math.max(1, value - 1))}
+              aria-label="Diminuir quantidade"
+            >
+              −
+            </button>
+            <strong>{quantity}</strong>
+            <button
+              type="button"
+              onClick={() => setQuantity((value) => Math.min(50, value + 1))}
+              aria-label="Aumentar quantidade"
+            >
+              +
+            </button>
+          </div>
+          <small>Serão criados {quantity} patrimônios individuais.</small>
+        </div>
         <div className="cx-dialog-actions">
           <button type="button" className="cx-button cx-button--ghost" onClick={onClose}>
             Cancelar
@@ -579,7 +764,7 @@ function EquipmentDialog({ role, onClose }: { role: Role; onClose(): void }) {
 }
 
 function HowItWorksDialog({ role, onClose }: { role: Role; onClose(): void }) {
-  const steps = [
+  const memberSteps = [
     [
       "Crie sua conta no Minute",
       "Use o email fornecido pelo responsável Clonex. A gravação acontece no Minute Data.",
@@ -603,6 +788,46 @@ function HowItWorksDialog({ role, onClose }: { role: Role; onClose(): void }) {
         : "Os indicadores da equipe são recalculados e cada número mantém sua origem e histórico.",
     ],
   ];
+  const subleaderSteps = [
+    [
+      "Cadastre o membro",
+      "Defina serviço, vínculo, jornada, ciclo, meta, tarifa, equipe e código Minute.",
+    ],
+    [
+      "Entregue o código Minute",
+      "O código individual conecta a rotina registrada à pessoa certa, sem login nesta etapa.",
+    ],
+    ["Aloque equipamentos", "Registre patrimônio, tamanho, cor e regime full ou part time."],
+    [
+      "Valide e revise",
+      "Registre o consentimento por arquivo ou assinatura e revise cada captura pendente.",
+    ],
+    [
+      "Gerencie metas e pagamentos",
+      "Acompanhe ritmo, projeção, regra de 10h, risco de 60h e pagamentos sugeridos.",
+    ],
+  ];
+  const leaderSteps = [
+    [
+      "Acompanhe a cidade",
+      "Use o consolidado para horas, metas, consentimentos, jornadas e equipamentos.",
+    ],
+    ["Compare Sublíderes", "Abra cada equipe para consultar bateria, projeção, riscos e membros."],
+    [
+      "Garanta governança",
+      "Use Atividades para consultar ações e histórico auditado de toda a operação.",
+    ],
+    [
+      "Controle qualidade",
+      "Monitore revisões, pendências e a origem de cada indicador dos relatórios.",
+    ],
+    [
+      "Antecipe o fechamento",
+      "Use a projeção para atuar antes das regras de 10h, 60h e meta completa.",
+    ],
+  ];
+  const steps =
+    role === "membro" ? memberSteps : role === "subleader" ? subleaderSteps : leaderSteps;
   return (
     <Dialog
       title="Como funciona"
@@ -615,6 +840,11 @@ function HowItWorksDialog({ role, onClose }: { role: Role; onClose(): void }) {
           alt="Mãos utilizando um celular para registrar uma atividade"
         />
         <div>
+          <img
+            className="cx-minute-logo"
+            src="/images/clonex-minute-logo.png"
+            alt="Logo do aplicativo Minute"
+          />
           <span className="cx-eyebrow">Fluxo de captura</span>
           <strong>Grave, registre e acompanhe.</strong>
         </div>
@@ -651,6 +881,10 @@ function MoreDialog({
   const items: NavItem[] = [
     { key: "finance", label: "Financeiro", icon: CircleDollarSign },
     { key: "reports", label: "Relatórios", icon: ScrollText },
+    ...(role === "subleader"
+      ? [{ key: "insights" as const, label: "Insights", icon: Lightbulb }]
+      : []),
+    { key: "activities", label: "Atividades", icon: Activity },
     ...(role === "lider"
       ? [{ key: "pending" as const, label: "Pendências", icon: AlertTriangle }]
       : []),

@@ -69,7 +69,7 @@ export function MemberRegistrationDialog({ role, onClose }: { role: Role; onClos
       {
         name: String(form.get("name")),
         email: String(form.get("email")),
-        phone: String(form.get("phone")),
+        phone: "",
         team: String(form.get("team")),
         city: String(form.get("city")),
         affiliation,
@@ -80,6 +80,9 @@ export function MemberRegistrationDialog({ role, onClose }: { role: Role; onClos
         targetDaysPerWeek: Number(form.get("targetDaysPerWeek")),
         cycleStartsAt: String(form.get("cycleStartsAt")),
         equipmentIds: form.getAll("equipmentIds").map(String),
+        serviceName: String(form.get("serviceName")),
+        minuteCode: String(form.get("minuteCode")),
+        supervisorId: String(form.get("team")) === "JF-1" ? "p6" : "p7",
       },
       role,
     );
@@ -102,8 +105,12 @@ export function MemberRegistrationDialog({ role, onClose }: { role: Role; onClos
             <input name="email" type="email" required />
           </label>
           <label>
-            Telefone
-            <input name="phone" required />
+            Serviço realizado
+            <input name="serviceName" placeholder="Ex.: manutenção automotiva" required />
+          </label>
+          <label>
+            Código Minute
+            <input name="minuteCode" placeholder="Ex.: JF1-NOME-26" required />
           </label>
           <label>
             Equipe

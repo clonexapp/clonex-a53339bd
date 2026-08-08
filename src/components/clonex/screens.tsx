@@ -20,12 +20,21 @@ interface ScreenProps {
   onAddEquipment(): void;
   onAddPayment?(): void;
   onOpenSource(source: MetricSource): void;
+  onOpenCapture(id: string): void;
 }
 
-export function OverviewScreen({ data, role, onAddCapture, onOpenSource }: ScreenProps) {
+export function OverviewScreen({
+  data,
+  role,
+  onAddCapture,
+  onOpenSource,
+  onOpenCapture,
+}: ScreenProps) {
   const member = data.people.find((person) => person.id === "p1") ?? data.people[0];
   const memberCaptures = data.captures.filter((capture) => capture.personId === member?.id);
-  const memberMinutes = memberCaptures.reduce((sum, capture) => sum + capture.minutes, 0);
+  const memberMinutes = memberCaptures
+    .filter((capture) => capture.status === "aprovado")
+    .reduce((sum, capture) => sum + capture.minutes, 0);
   const scope =
     role === "membro"
       ? { kind: "person" as const, value: member?.id ?? "p1" }
@@ -90,7 +99,11 @@ export function OverviewScreen({ data, role, onAddCapture, onOpenSource }: Scree
             <GoalBattery minutes={memberMinutes} goalHours={goalHours} />
           </button>
         </Card>
-        <RecentCaptures data={data} captures={memberCaptures.slice(0, 4)} />
+        <RecentCaptures
+          data={data}
+          captures={memberCaptures.slice(0, 4)}
+          onOpenCapture={onOpenCapture}
+        />
       </div>
     );
   }
@@ -129,8 +142,9 @@ export function OverviewScreen({ data, role, onAddCapture, onOpenSource }: Scree
           minutes={data.captures
             .filter(
               (capture) =>
-                role === "lider" ||
-                data.people.find((person) => person.id === capture.personId)?.team === "JF-1",
+                capture.status === "aprovado" &&
+                (role === "lider" ||
+                  data.people.find((person) => person.id === capture.personId)?.team === "JF-1"),
             )
             .reduce((sum, capture) => sum + capture.minutes, 0)}
           goalHours={data.people
@@ -161,7 +175,7 @@ export function OverviewScreen({ data, role, onAddCapture, onOpenSource }: Scree
             );
             const ids = new Set(people.map((person) => person.id));
             const minutes = data.captures
-              .filter((capture) => ids.has(capture.personId))
+              .filter((capture) => ids.has(capture.personId) && capture.status === "aprovado")
               .reduce((sum, capture) => sum + capture.minutes, 0);
             const goal = people.reduce((sum, person) => sum + person.goalHours, 0);
             return (
@@ -200,12 +214,16 @@ export function OverviewScreen({ data, role, onAddCapture, onOpenSource }: Scree
           </div>
         </Card>
       </div>
-      <RecentCaptures data={data} captures={data.captures.slice(0, 5)} />
+      <RecentCaptures
+        data={data}
+        captures={data.captures.slice(0, 5)}
+        onOpenCapture={onOpenCapture}
+      />
     </div>
   );
 }
 
-export function CapturesScreen({ data, role, onAddCapture }: ScreenProps) {
+export function CapturesScreen({ data, role, onAddCapture, onOpenCapture }: ScreenProps) {
   const { updateCaptureStatus } = useAppData();
   const captures =
     role === "membro"
@@ -242,7 +260,11 @@ export function CapturesScreen({ data, role, onAddCapture }: ScreenProps) {
               {captures.map((capture) => {
                 const person = data.people.find((item) => item.id === capture.personId);
                 return (
-                  <tr key={capture.id}>
+                  <tr
+                    key={capture.id}
+                    className="cx-clickable-row"
+                    onClick={() => onOpenCapture(capture.id)}
+                  >
                     <td>
                       <strong>{person?.name ?? "Pessoa removida"}</strong>
                       <small>{person?.team}</small>
@@ -258,13 +280,19 @@ export function CapturesScreen({ data, role, onAddCapture }: ScreenProps) {
                         <div className="cx-row-actions">
                           <button
                             aria-label="Aprovar captura"
-                            onClick={() => updateCaptureStatus(capture.id, "aprovado", role)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              updateCaptureStatus(capture.id, "aprovado", role);
+                            }}
                           >
                             <Check size={16} />
                           </button>
                           <button
                             aria-label="Reprovar captura"
-                            onClick={() => updateCaptureStatus(capture.id, "reprovado", role)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              updateCaptureStatus(capture.id, "reprovado", role);
+                            }}
                           >
                             <X size={16} />
                           </button>
@@ -456,6 +484,10 @@ export function EquipmentScreen({ data, onAddEquipment }: ScreenProps) {
                 <span className="cx-eyebrow">{item.type}</span>
                 <h2>{item.model}</h2>
                 <p>
+                  {item.assetCode} · {item.color}
+                  {item.size ? ` · tamanho ${item.size}` : ""}
+                </p>
+                <p>
                   {person
                     ? `Com ${person.name}`
                     : item.owner === "clonex"
@@ -463,7 +495,7 @@ export function EquipmentScreen({ data, onAddEquipment }: ScreenProps) {
                       : "Equipamento próprio"}
                 </p>
                 {assignment ? (
-                  <small className="cx-equipment-allocation">
+                  <small className={`cx-equipment-allocation is-${assignment.workload}`}>
                     {assignment.workload === "full_time" ? "Full time" : "Part time"}
                     {company ? ` · ${company.name}` : ""}
                   </small>
@@ -589,7 +621,15 @@ export function GoalsScreen({ data }: ScreenProps) {
   );
 }
 
-function RecentCaptures({ data, captures }: { data: AppData; captures: AppData["captures"] }) {
+function RecentCaptures({
+  data,
+  captures,
+  onOpenCapture,
+}: {
+  data: AppData;
+  captures: AppData["captures"];
+  onOpenCapture(id: string): void;
+}) {
   return (
     <Card>
       <div className="cx-card-heading">
@@ -601,7 +641,11 @@ function RecentCaptures({ data, captures }: { data: AppData; captures: AppData["
       {captures.length ? (
         <div className="cx-list">
           {captures.map((capture) => (
-            <div className="cx-list-row" key={capture.id}>
+            <button
+              className="cx-list-row cx-list-row--button"
+              key={capture.id}
+              onClick={() => onOpenCapture(capture.id)}
+            >
               <div className="cx-list-icon">
                 <Clock3 size={17} />
               </div>
@@ -616,7 +660,7 @@ function RecentCaptures({ data, captures }: { data: AppData; captures: AppData["
                 <strong>{formatHours(capture.minutes)}</strong>
                 <StatusBadge status={capture.status} />
               </div>
-            </div>
+            </button>
           ))}
         </div>
       ) : (

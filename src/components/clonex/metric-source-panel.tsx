@@ -54,7 +54,7 @@ export function MetricSourcePanel({
       }}
     >
       <section
-        className="cx-source-panel"
+        className={`cx-source-panel cx-source-panel--${source.metric}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="source-panel-title"

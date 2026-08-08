@@ -63,6 +63,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 actorRole: "membro",
                 occurredAt,
                 details: `Registrou ${input.minutes} minutos de ${input.activity}.`,
+                category: "captura",
+                team: "JF-1",
+                targetRole: "membro",
+                targetPersonId: "p1",
               },
               ...current.auditEvents,
             ],
@@ -71,22 +75,35 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       },
       addEquipment(input, actorRole) {
         update((current) => {
-          const id = crypto.randomUUID();
           const actor = actorFor(actorRole);
           const occurredAt = new Date().toISOString();
+          const batchId = crypto.randomUUID();
+          const quantity = Math.min(50, Math.max(1, input.quantity));
+          const created = Array.from({ length: quantity }, (_, index) => ({
+            id: crypto.randomUUID(),
+            type: input.type,
+            model: input.model,
+            owner: input.owner,
+            status: "disponivel" as const,
+            color: input.color,
+            batchId,
+            assetCode: `CX-${String(current.equipment.length + index + 1).padStart(4, "0")}`,
+            ...(input.size ? { size: input.size } : {}),
+          }));
           return {
             ...current,
-            equipment: [...current.equipment, { id, status: "disponivel", ...input }],
+            equipment: [...current.equipment, ...created],
             auditEvents: [
               {
                 id: crypto.randomUUID(),
                 entity: "equipment",
-                entityId: id,
+                entityId: batchId,
                 action: "equipment.created",
                 ...actor,
                 actorRole,
                 occurredAt,
-                details: `Cadastrou ${input.type} ${input.model}.`,
+                details: `Cadastrou lote com ${quantity} ${input.type}(s), ${input.model}, cor ${input.color}.`,
+                category: "equipamento",
               },
               ...current.auditEvents,
             ],
@@ -111,6 +128,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 actorRole,
                 occurredAt,
                 details: `Cadastrou a empresa ${input.name}.`,
+                category: "pessoa",
               },
               ...current.auditEvents,
             ],
@@ -151,6 +169,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 ...(input.companyId ? { companyId: input.companyId } : {}),
                 workload: input.workload,
                 hourlyRate: input.hourlyRate,
+                serviceName: input.serviceName,
+                minuteCode: input.minuteCode,
+                ...(input.supervisorId ? { supervisorId: input.supervisorId } : {}),
               },
             ],
             cycles: [
@@ -177,6 +198,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 entity: "person",
                 entityId: id,
                 action: "person.created",
+                category: "pessoa",
+                team: input.team,
+                targetRole: "membro",
+                targetPersonId: id,
                 ...actor,
                 actorRole,
                 occurredAt,
@@ -210,6 +235,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 uploadedBy: actor.actorName,
                 ...(validUntil ? { validUntil } : {}),
                 active: true,
+                mode: "upload",
+                signedAt: occurredAt,
+                signedBy: actor.actorName,
               },
             ],
             auditEvents: [
@@ -218,6 +246,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 entity: "consent",
                 entityId: personId,
                 action: "consent.uploaded",
+                category: "consentimento",
+                team: current.people.find((person) => person.id === personId)?.team,
+                targetRole: "membro",
+                targetPersonId: personId,
                 ...actor,
                 actorRole,
                 occurredAt,
@@ -230,6 +262,50 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       },
       downloadConsent(storageKey, fileName) {
         return localAssetRepository.open(storageKey, fileName);
+      },
+      addSignedConsent(personId, mode, validUntil, actorRole) {
+        update((current) => {
+          const actor = actorFor(actorRole);
+          const occurredAt = new Date().toISOString();
+          const person = current.people.find((item) => item.id === personId);
+          const id = crypto.randomUUID();
+          return {
+            ...current,
+            consentRecords: [
+              ...current.consentRecords.map((record) =>
+                record.personId === personId ? { ...record, active: false } : record,
+              ),
+              {
+                id,
+                personId,
+                mode,
+                uploadedAt: occurredAt,
+                uploadedBy: actor.actorName,
+                signedAt: occurredAt,
+                signedBy: person?.name ?? actor.actorName,
+                ...(validUntil ? { validUntil } : {}),
+                active: true,
+              },
+            ],
+            auditEvents: [
+              {
+                id: crypto.randomUUID(),
+                entity: "consent",
+                entityId: id,
+                action: `consent.${mode}`,
+                ...actor,
+                actorRole,
+                occurredAt,
+                details: `Marcou o termo de ${person?.name ?? "membro"} como assinado ${mode === "fisico" ? "fisicamente" : "digitalmente"}.`,
+                category: "consentimento",
+                team: person?.team,
+                targetRole: "membro",
+                targetPersonId: personId,
+              },
+              ...current.auditEvents,
+            ],
+          };
+        });
       },
       addPayment(input, actorRole) {
         update((current) => {
@@ -252,6 +328,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 entity: "payment",
                 entityId: id,
                 action: "payment.created",
+                category: "pagamento",
+                team: current.people.find((person) => person.id === input.personId)?.team,
+                targetRole: "membro",
+                targetPersonId: input.personId,
                 ...actor,
                 actorRole,
                 occurredAt,
@@ -296,6 +376,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 entity: "cycle",
                 entityId: id,
                 action: "cycle.updated",
+                category: "ciclo",
+                targetRole: "membro",
+                targetPersonId: cycle?.personId,
                 ...actor,
                 actorRole,
                 occurredAt,
@@ -325,6 +408,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                     entity: "capture",
                     entityId: id,
                     action: status === "aprovado" ? "capture.approved" : "capture.rejected",
+                    category: "captura",
+                    team: current.people.find((person) => person.id === capture.personId)?.team,
+                    targetRole: "membro",
+                    targetPersonId: capture.personId,
                     ...actor,
                     actorRole,
                     occurredAt,
@@ -351,6 +438,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 entity: "goal",
                 entityId: id,
                 action: "goal.updated",
+                category: "meta",
+                team: current.people.find((person) => person.id === id)?.team,
+                targetRole: "membro",
+                targetPersonId: id,
                 ...actor,
                 actorRole,
                 occurredAt: new Date().toISOString(),
@@ -368,6 +459,42 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             notice.role === role ? { ...notice, read: true } : notice,
           ),
         }));
+      },
+      recordAccess(personId) {
+        update((current) => {
+          const today = new Date().toISOString().slice(0, 10);
+          if (
+            current.accessEvents.some(
+              (event) => event.personId === personId && event.accessedAt.startsWith(today),
+            )
+          )
+            return current;
+          return {
+            ...current,
+            accessEvents: [
+              { id: crypto.randomUUID(), personId, accessedAt: new Date().toISOString() },
+              ...current.accessEvents,
+            ],
+          };
+        });
+      },
+      markActivitiesSeen(role) {
+        update((current) => {
+          const existing = new Set(
+            current.activitySeen.filter((item) => item.role === role).map((item) => item.eventId),
+          );
+          const seenAt = new Date().toISOString();
+          const additions = current.auditEvents
+            .filter((event) => !existing.has(event.id))
+            .map((event) => ({
+              id: crypto.randomUUID(),
+              role,
+              eventId: event.id,
+              seenAt,
+            }));
+          if (!additions.length) return current;
+          return { ...current, activitySeen: [...current.activitySeen, ...additions] };
+        });
       },
       async resetDemo() {
         setData(await localAppRepository.reset());

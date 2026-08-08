@@ -8,6 +8,7 @@ import type {
   NewEquipment,
   NewPayment,
   NewPerson,
+  ConsentMode,
   Role,
 } from "@/domain/types";
 
@@ -23,6 +24,12 @@ export interface AppDataContextValue {
     validUntil: string | undefined,
     actorRole: Role,
   ): Promise<void>;
+  addSignedConsent(
+    personId: string,
+    mode: Exclude<ConsentMode, "upload">,
+    validUntil: string | undefined,
+    actorRole: Role,
+  ): void;
   downloadConsent(storageKey: string, fileName: string): Promise<boolean>;
   addPayment(input: NewPayment, actorRole: Role): void;
   updateCycle(
@@ -33,6 +40,8 @@ export interface AppDataContextValue {
   updateCaptureStatus(id: string, status: CaptureStatus, actorRole: Role): void;
   updatePersonGoal(id: string, goalHours: number, actorRole: Role): void;
   markNoticesRead(role: Role): void;
+  recordAccess(personId: string): void;
+  markActivitiesSeen(role: Role): void;
   resetDemo(): Promise<void>;
 }
 
