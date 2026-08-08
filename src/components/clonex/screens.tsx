@@ -1,7 +1,13 @@
 import { Check, ChevronDown, ChevronUp, Clock3, Plus, X } from "lucide-react";
 
-import type { AppData, Role } from "@/domain/types";
+import type { AppData, MetricSource, Role } from "@/domain/types";
 import { formatDate, formatHours, formatMoney } from "@/lib/formatters";
+import {
+  buildActivePeopleSource,
+  buildPendingReviewsSource,
+  buildReportMetrics,
+  reportScopeFor,
+} from "@/lib/reporting";
 import { useAppData } from "@/state/use-app-data";
 import { Card, EmptyState, Progress, StatCard, StatusBadge } from "./dashboard-ui";
 
@@ -10,19 +16,22 @@ interface ScreenProps {
   role: Role;
   onAddCapture(): void;
   onAddEquipment(): void;
+  onOpenSource(source: MetricSource): void;
 }
 
-export function OverviewScreen({ data, role, onAddCapture }: ScreenProps) {
+export function OverviewScreen({ data, role, onAddCapture, onOpenSource }: ScreenProps) {
   const member = data.people.find((person) => person.id === "p1") ?? data.people[0];
   const memberCaptures = data.captures.filter((capture) => capture.personId === member?.id);
   const memberMinutes = memberCaptures.reduce((sum, capture) => sum + capture.minutes, 0);
-  const totalMinutes = data.captures.reduce((sum, capture) => sum + capture.minutes, 0);
-  const approved = data.captures.filter((capture) => capture.status === "aprovado").length;
-  const approval = data.captures.length ? (approved / data.captures.length) * 100 : 0;
-  const activePeople = data.people.filter(
-    (person) => person.role === "membro" && person.active,
-  ).length;
-  const pending = data.captures.filter((capture) => capture.status === "pendente").length;
+  const scope =
+    role === "membro"
+      ? { kind: "person" as const, value: member?.id ?? "p1" }
+      : reportScopeFor(role);
+  const overviewMetrics = buildReportMetrics(data, scope, "month");
+  const quantitySource = overviewMetrics[0];
+  const qualitySource = overviewMetrics[2];
+  const activeSource = buildActivePeopleSource(data, scope);
+  const pendingSource = buildPendingReviewsSource(data, scope, "month");
 
   if (role === "membro" && member) {
     const progress = member.goalHours ? (memberMinutes / 60 / member.goalHours) * 100 : 0;
@@ -44,16 +53,19 @@ export function OverviewScreen({ data, role, onAddCapture }: ScreenProps) {
             value={formatHours(memberMinutes)}
             detail="Neste ciclo"
             tone="accent"
+            onClick={() => onOpenSource(quantitySource)}
           />
           <StatCard
             label="Meta mensal"
             value={`${member.goalHours}h`}
             detail={`${Math.max(0, member.goalHours - memberMinutes / 60).toFixed(0)}h restantes`}
+            onClick={() => onOpenSource(quantitySource)}
           />
           <StatCard
             label="Aprovação"
             value={`${Math.round(memberCaptures.length ? (memberCaptures.filter((item) => item.status === "aprovado").length / memberCaptures.length) * 100 : 0)}%`}
             detail="Qualidade das capturas"
+            onClick={() => onOpenSource(qualitySource)}
           />
         </div>
         <Card>
@@ -67,6 +79,7 @@ export function OverviewScreen({ data, role, onAddCapture }: ScreenProps) {
           <Progress
             value={progress}
             label={`${formatHours(memberMinutes)} de ${member.goalHours}h`}
+            onClick={() => onOpenSource(quantitySource)}
           />
         </Card>
         <RecentCaptures data={data} captures={memberCaptures.slice(0, 4)} />
@@ -84,20 +97,23 @@ export function OverviewScreen({ data, role, onAddCapture }: ScreenProps) {
       <div className="cx-stats-grid">
         <StatCard
           label="Horas capturadas"
-          value={formatHours(totalMinutes)}
-          detail="Todas as equipes"
+          value={quantitySource.value}
+          detail={quantitySource.actual}
           tone="accent"
+          onClick={() => onOpenSource(quantitySource)}
         />
         <StatCard
           label="Pessoas ativas"
-          value={String(activePeople)}
-          detail={`${data.people.filter((person) => person.role === "membro").length} cadastradas`}
+          value={activeSource.value}
+          detail={activeSource.actual}
+          onClick={() => onOpenSource(activeSource)}
         />
         <StatCard
           label="Aprovação"
-          value={`${Math.round(approval)}%`}
-          detail={`${pending} aguardando revisão`}
-          tone={pending ? "warning" : "default"}
+          value={`${qualitySource.percentage}%`}
+          detail={qualitySource.actual}
+          tone={Number(pendingSource.value) ? "warning" : "default"}
+          onClick={() => onOpenSource(qualitySource)}
         />
       </div>
       <div className="cx-two-columns">
@@ -122,6 +138,9 @@ export function OverviewScreen({ data, role, onAddCapture }: ScreenProps) {
                 key={team}
                 label={`${team} · ${formatHours(minutes)} de ${goal}h`}
                 value={goal ? (minutes / 60 / goal) * 100 : 0}
+                onClick={() =>
+                  onOpenSource(buildReportMetrics(data, { kind: "team", value: team }, "month")[0])
+                }
               />
             );
           })}
@@ -134,7 +153,11 @@ export function OverviewScreen({ data, role, onAddCapture }: ScreenProps) {
             </div>
           </div>
           <div className="cx-alert-list">
-            <AlertItem value={pending} label="capturas para revisar" />
+            <AlertItem
+              value={Number(pendingSource.value)}
+              label="capturas para revisar"
+              onClick={() => onOpenSource(pendingSource)}
+            />
             <AlertItem
               value={data.equipment.filter((item) => item.status === "manutencao").length}
               label="equipamento em manutenção"
@@ -204,13 +227,13 @@ export function CapturesScreen({ data, role, onAddCapture }: ScreenProps) {
                         <div className="cx-row-actions">
                           <button
                             aria-label="Aprovar captura"
-                            onClick={() => updateCaptureStatus(capture.id, "aprovado")}
+                            onClick={() => updateCaptureStatus(capture.id, "aprovado", role)}
                           >
                             <Check size={16} />
                           </button>
                           <button
                             aria-label="Reprovar captura"
-                            onClick={() => updateCaptureStatus(capture.id, "reprovado")}
+                            onClick={() => updateCaptureStatus(capture.id, "reprovado", role)}
                           >
                             <X size={16} />
                           </button>
@@ -228,7 +251,7 @@ export function CapturesScreen({ data, role, onAddCapture }: ScreenProps) {
   );
 }
 
-export function PeopleScreen({ data }: ScreenProps) {
+export function PeopleScreen({ data, role }: ScreenProps) {
   const { updatePersonGoal } = useAppData();
   const members = data.people.filter((person) => person.role === "membro");
   return (
@@ -273,14 +296,14 @@ export function PeopleScreen({ data }: ScreenProps) {
                 <div>
                   <button
                     aria-label="Diminuir meta"
-                    onClick={() => updatePersonGoal(person.id, person.goalHours - 10)}
+                    onClick={() => updatePersonGoal(person.id, person.goalHours - 10, role)}
                   >
                     <ChevronDown size={16} />
                   </button>
                   <strong>{person.goalHours}h</strong>
                   <button
                     aria-label="Aumentar meta"
-                    onClick={() => updatePersonGoal(person.id, person.goalHours + 10)}
+                    onClick={() => updatePersonGoal(person.id, person.goalHours + 10, role)}
                   >
                     <ChevronUp size={16} />
                   </button>
@@ -327,7 +350,17 @@ export function EquipmentScreen({ data, onAddEquipment }: ScreenProps) {
           const person = data.people.find((candidate) => candidate.id === item.assignedTo);
           return (
             <Card key={item.id} className="cx-equipment-card">
-              <div className="cx-equipment-icon">{item.type === "capacete" ? "C" : "M"}</div>
+              <div className="cx-equipment-icon">
+                <img
+                  src={
+                    item.type === "capacete"
+                      ? "/images/clonex-helmet-3d.png"
+                      : "/images/clonex-phone-3d.png"
+                  }
+                  alt={item.type === "capacete" ? "Capacete 3D" : "Celular 3D"}
+                  loading="lazy"
+                />
+              </div>
               <div>
                 <span className="cx-eyebrow">{item.type}</span>
                 <h2>{item.model}</h2>
@@ -513,11 +546,26 @@ function PageHeading({
   );
 }
 
-function AlertItem({ value, label }: { value: number; label: string }) {
-  return (
-    <div className="cx-alert-item">
+function AlertItem({
+  value,
+  label,
+  onClick,
+}: {
+  value: number;
+  label: string;
+  onClick?: () => void;
+}) {
+  const content = (
+    <>
       <strong>{value}</strong>
       <span>{label}</span>
-    </div>
+    </>
+  );
+  return onClick ? (
+    <button type="button" className="cx-alert-item cx-data-button" onClick={onClick}>
+      {content}
+    </button>
+  ) : (
+    <div className="cx-alert-item">{content}</div>
   );
 }

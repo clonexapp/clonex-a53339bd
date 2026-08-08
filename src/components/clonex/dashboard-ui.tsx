@@ -11,12 +11,28 @@ export function StatCard({
   value,
   detail,
   tone = "default",
+  onClick,
 }: {
   label: string;
   value: string;
   detail: string;
   tone?: "default" | "accent" | "warning";
+  onClick?: () => void;
 }) {
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className={`cx-card cx-stat cx-stat--${tone} cx-data-button`}
+        onClick={onClick}
+        aria-label={`Ver origem e histórico de ${label}`}
+      >
+        <span>{label}</span>
+        <strong>{value}</strong>
+        <small>{detail}</small>
+      </button>
+    );
+  }
   return (
     <Card className={`cx-stat cx-stat--${tone}`}>
       <span>{label}</span>
@@ -44,10 +60,18 @@ export function StatusBadge({
   return <span className={`cx-badge cx-badge--${status}`}>{labels[status]}</span>;
 }
 
-export function Progress({ value, label }: { value: number; label: string }) {
+export function Progress({
+  value,
+  label,
+  onClick,
+}: {
+  value: number;
+  label: string;
+  onClick?: () => void;
+}) {
   const safeValue = Math.min(100, Math.max(0, value));
-  return (
-    <div className="cx-progress-block">
+  const content = (
+    <>
       <div className="cx-progress-label">
         <span>{label}</span>
         <strong>{Math.round(safeValue)}%</strong>
@@ -55,7 +79,19 @@ export function Progress({ value, label }: { value: number; label: string }) {
       <div className="cx-progress" aria-label={`${label}: ${Math.round(safeValue)}%`}>
         <span style={{ width: `${safeValue}%` }} />
       </div>
-    </div>
+    </>
+  );
+  return onClick ? (
+    <button
+      type="button"
+      className="cx-progress-block cx-progress-button"
+      onClick={onClick}
+      aria-label={`Ver origem e histórico de ${label}`}
+    >
+      {content}
+    </button>
+  ) : (
+    <div className="cx-progress-block">{content}</div>
   );
 }
 

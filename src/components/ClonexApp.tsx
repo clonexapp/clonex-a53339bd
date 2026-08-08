@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   BarChart3,
   Bell,
@@ -7,15 +7,18 @@ import {
   CircleDollarSign,
   Flag,
   HardHat,
+  HelpCircle,
   Home,
   LogOut,
   Menu,
+  MoreHorizontal,
+  ScrollText,
   RotateCcw,
   Users,
   X,
 } from "lucide-react";
 
-import type { EquipmentType, Role } from "@/domain/types";
+import type { EquipmentType, MetricSource, Role } from "@/domain/types";
 import { AppDataProvider } from "@/state/app-data-context";
 import { useAppData } from "@/state/use-app-data";
 import {
@@ -26,8 +29,10 @@ import {
   OverviewScreen,
   PeopleScreen,
 } from "@/components/clonex/screens";
+import { MetricSourcePanel } from "@/components/clonex/metric-source-panel";
+import { ReportsScreen } from "@/components/clonex/reports-screen";
 
-type TabKey = "overview" | "captures" | "goals" | "people" | "equipment" | "finance";
+type TabKey = "overview" | "captures" | "goals" | "people" | "equipment" | "finance" | "reports";
 
 interface NavItem {
   key: TabKey;
@@ -54,6 +59,7 @@ const NAVIGATION: Record<Role, NavItem[]> = {
     { key: "captures", label: "Capturas", icon: Camera },
     { key: "equipment", label: "Equipamentos", icon: HardHat },
     { key: "finance", label: "Financeiro", icon: CircleDollarSign },
+    { key: "reports", label: "Relatórios", icon: ScrollText },
   ],
   lider: [
     { key: "overview", label: "Visão geral", icon: BarChart3 },
@@ -61,6 +67,7 @@ const NAVIGATION: Record<Role, NavItem[]> = {
     { key: "captures", label: "Capturas", icon: Camera },
     { key: "equipment", label: "Equipamentos", icon: HardHat },
     { key: "finance", label: "Financeiro", icon: CircleDollarSign },
+    { key: "reports", label: "Relatórios", icon: ScrollText },
   ],
 };
 
@@ -72,11 +79,18 @@ function ClonexWorkspace() {
   const [noticesOpen, setNoticesOpen] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
   const [equipmentOpen, setEquipmentOpen] = useState(false);
+  const [howOpen, setHowOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [metricSource, setMetricSource] = useState<MetricSource | null>(null);
 
   if (!data) return <LoadingScreen />;
   if (!role) return <AccessScreen onEnter={setRole} />;
 
   const nav = NAVIGATION[role];
+  const mobilePrimaryNav =
+    role === "membro"
+      ? nav
+      : nav.filter((item) => item.key !== "finance" && item.key !== "reports");
   const notices = data.notices.filter((notice) => notice.role === role);
   const unread = notices.filter((notice) => !notice.read).length;
 
@@ -91,6 +105,7 @@ function ClonexWorkspace() {
     role,
     onAddCapture: () => setCaptureOpen(true),
     onAddEquipment: () => setEquipmentOpen(true),
+    onOpenSource: setMetricSource,
   };
 
   return (
@@ -172,6 +187,16 @@ function ClonexWorkspace() {
           </div>
           <div className="cx-notice-wrap">
             <button
+              className="cx-help-button"
+              onClick={() => setHowOpen(true)}
+              aria-label="Abrir Como funciona"
+            >
+              <HelpCircle size={18} />
+              <span>Como funciona</span>
+            </button>
+          </div>
+          <div className="cx-notice-wrap">
+            <button
               className="cx-icon-button"
               aria-label={`${unread} notificações não lidas`}
               onClick={() => {
@@ -219,10 +244,13 @@ function ClonexWorkspace() {
           {tab === "people" && <PeopleScreen {...screenProps} />}
           {tab === "equipment" && <EquipmentScreen {...screenProps} />}
           {tab === "finance" && <FinanceScreen {...screenProps} />}
+          {tab === "reports" && role !== "membro" && (
+            <ReportsScreen data={data} role={role} onOpenSource={setMetricSource} />
+          )}
         </main>
 
         <nav className="cx-bottom-nav" aria-label="Navegação móvel">
-          {nav.slice(0, 5).map((item) => (
+          {mobilePrimaryNav.map((item) => (
             <button
               key={item.key}
               className={tab === item.key ? "is-active" : ""}
@@ -232,11 +260,38 @@ function ClonexWorkspace() {
               <span>{item.label}</span>
             </button>
           ))}
+          {role !== "membro" ? (
+            <button
+              className={tab === "finance" || tab === "reports" ? "is-active" : ""}
+              onClick={() => setMoreOpen(true)}
+            >
+              <MoreHorizontal size={20} />
+              <span>Mais</span>
+            </button>
+          ) : null}
         </nav>
       </div>
 
       {captureOpen && <CaptureDialog onClose={() => setCaptureOpen(false)} />}
-      {equipmentOpen && <EquipmentDialog onClose={() => setEquipmentOpen(false)} />}
+      {equipmentOpen && <EquipmentDialog role={role} onClose={() => setEquipmentOpen(false)} />}
+      {howOpen && <HowItWorksDialog role={role} onClose={() => setHowOpen(false)} />}
+      {moreOpen && (
+        <MoreDialog
+          activeTab={tab}
+          onSelect={(nextTab) => {
+            setTab(nextTab);
+            setMoreOpen(false);
+          }}
+          onClose={() => setMoreOpen(false)}
+        />
+      )}
+      {metricSource && (
+        <MetricSourcePanel
+          source={metricSource}
+          data={data}
+          onClose={() => setMetricSource(null)}
+        />
+      )}
     </div>
   );
 }
@@ -367,7 +422,7 @@ function CaptureDialog({ onClose }: { onClose(): void }) {
   );
 }
 
-function EquipmentDialog({ onClose }: { onClose(): void }) {
+function EquipmentDialog({ role, onClose }: { role: Role; onClose(): void }) {
   const { addEquipment } = useAppData();
   const [type, setType] = useState<EquipmentType>("capacete");
   const [model, setModel] = useState("");
@@ -375,7 +430,7 @@ function EquipmentDialog({ onClose }: { onClose(): void }) {
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!model.trim()) return;
-    addEquipment({ type, model: model.trim(), owner });
+    addEquipment({ type, model: model.trim(), owner }, role);
     onClose();
   }
   return (
@@ -385,6 +440,18 @@ function EquipmentDialog({ onClose }: { onClose(): void }) {
       onClose={onClose}
     >
       <form className="cx-form" onSubmit={submit}>
+        <div className="cx-equipment-dialog-art" aria-hidden="true">
+          <img
+            src={
+              type === "capacete" ? "/images/clonex-helmet-3d.png" : "/images/clonex-phone-3d.png"
+            }
+            alt=""
+          />
+          <div>
+            <span className="cx-eyebrow">Visualização 3D</span>
+            <strong>{type === "capacete" ? "Capacete" : "Celular"}</strong>
+          </div>
+        </div>
         <div className="cx-form-row">
           <label>
             Tipo
@@ -427,6 +494,104 @@ function EquipmentDialog({ onClose }: { onClose(): void }) {
   );
 }
 
+function HowItWorksDialog({ role, onClose }: { role: Role; onClose(): void }) {
+  const steps = [
+    [
+      "Crie sua conta no Minute",
+      "Use o email fornecido pelo responsável Clonex. A gravação acontece no Minute Data.",
+    ],
+    [
+      "Grave em blocos de 30 minutos",
+      "Continue trabalhando normalmente; o Minute divide e envia os blocos automaticamente.",
+    ],
+    [
+      "Confira a sincronização",
+      "Ao terminar, finalize no Minute e confirme que a gravação foi enviada.",
+    ],
+    [
+      "Registre no Clonex",
+      "Informe atividade, duração e equipamento para ligar o registro à operação.",
+    ],
+    [
+      "Acompanhe a revisão",
+      role === "membro"
+        ? "Suas horas, qualidade e previsão são atualizadas a partir do que foi registrado."
+        : "Os indicadores da equipe são recalculados e cada número mantém sua origem e histórico.",
+    ],
+  ];
+  return (
+    <Dialog
+      title="Como funciona"
+      description="Do Minute ao relatório do Clonex, passo a passo."
+      onClose={onClose}
+    >
+      <div className="cx-how-hero">
+        <img
+          src="/images/clonex-how-it-works-3d.png"
+          alt="Mãos utilizando um celular para registrar uma atividade"
+        />
+        <div>
+          <span className="cx-eyebrow">Fluxo de captura</span>
+          <strong>Grave, registre e acompanhe.</strong>
+        </div>
+      </div>
+      <ol className="cx-how-steps">
+        {steps.map(([title, text], index) => (
+          <li key={title}>
+            <span>{index + 1}</span>
+            <div>
+              <strong>{title}</strong>
+              <p>{text}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <div className="cx-how-tip">
+        Ao completar 30 minutos, não pare: o Minute separa e envia o bloco sozinho.
+      </div>
+    </Dialog>
+  );
+}
+
+function MoreDialog({
+  activeTab,
+  onSelect,
+  onClose,
+}: {
+  activeTab: TabKey;
+  onSelect(tab: TabKey): void;
+  onClose(): void;
+}) {
+  const items: NavItem[] = [
+    { key: "finance", label: "Financeiro", icon: CircleDollarSign },
+    { key: "reports", label: "Relatórios", icon: ScrollText },
+  ];
+  return (
+    <Dialog title="Mais áreas" description="Acesse financeiro e relatórios." onClose={onClose}>
+      <div className="cx-more-grid">
+        {items.map((item) => (
+          <button
+            key={item.key}
+            className={activeTab === item.key ? "is-active" : ""}
+            onClick={() => onSelect(item.key)}
+          >
+            <item.icon size={22} />
+            <span>
+              <strong>{item.label}</strong>
+              <small>
+                {item.key === "reports"
+                  ? "Quantidade, previsibilidade e qualidade"
+                  : "Pagamentos realizados e previstos"}
+              </small>
+            </span>
+            <ChevronRight size={17} />
+          </button>
+        ))}
+      </div>
+    </Dialog>
+  );
+}
+
 function Dialog({
   title,
   description,
@@ -438,6 +603,14 @@ function Dialog({
   onClose(): void;
   children: React.ReactNode;
 }) {
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
   return (
     <div
       className="cx-dialog-layer"
