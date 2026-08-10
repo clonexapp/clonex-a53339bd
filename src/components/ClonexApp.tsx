@@ -47,6 +47,7 @@ import {
   ConsentKpis,
   InsightsScreen,
   LeaderOverview,
+  SupervisorsScreen,
   TeamPanel,
 } from "@/components/clonex/management-screens";
 
@@ -61,7 +62,8 @@ type TabKey =
   | "reports"
   | "pending"
   | "activities"
-  | "insights";
+  | "insights"
+  | "supervisors";
 
 interface NavItem {
   key: TabKey;
@@ -102,11 +104,13 @@ const NAVIGATION: Record<Role, NavItem[]> = {
     { key: "reports", label: "Relatórios", icon: ScrollText },
     { key: "activities", label: "Atividades", icon: Activity },
     { key: "pending", label: "Pendências", icon: AlertTriangle },
+    { key: "supervisors", label: "Sublíderes", icon: Users },
   ],
 };
 
 function ClonexWorkspace() {
-  const { data, markNoticesRead, recordAccess, resetDemo } = useAppData();
+  const { data, activeAccount, selectAccount, markNoticesRead, recordAccess, resetDemo } =
+    useAppData();
   const [role, setRole] = useState<Role | null>(null);
   const [tab, setTab] = useState<TabKey>("overview");
   const [mobileMenu, setMobileMenu] = useState(false);
@@ -124,19 +128,23 @@ function ClonexWorkspace() {
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
 
   useEffect(() => {
-    if (role === "membro") recordAccess("p1");
-  }, [role, recordAccess]);
+    if (role === "membro" && activeAccount?.personId) recordAccess(activeAccount.personId);
+  }, [role, activeAccount?.personId, recordAccess]);
 
   if (!data) return <LoadingScreen />;
-  if (!role) return <AccessScreen onEnter={setRole} />;
+  if (!role || !activeAccount)
+    return (
+      <AccessScreen
+        data={data}
+        onEnter={(accountId, nextRole) => {
+          selectAccount(accountId);
+          setRole(nextRole);
+        }}
+      />
+    );
 
   const nav = NAVIGATION[role];
-  const currentUser =
-    role === "membro"
-      ? data.people.find((person) => person.id === "p1")
-      : role === "subleader"
-        ? data.people.find((person) => person.id === "p6")
-        : undefined;
+  const currentTeam = data.teams.find((team) => team.id === activeAccount.teamId)?.name;
   const mobilePrimaryNav =
     role === "membro"
       ? nav
@@ -157,21 +165,33 @@ function ClonexWorkspace() {
       ? 0
       : data.auditEvents.filter(
           (event) =>
-            !seenEvents.has(event.id) && (role === "lider" || !event.team || event.team === "JF-1"),
+            !seenEvents.has(event.id) &&
+            (role === "lider" || !event.team || event.team === currentTeam),
         ).length;
   const unread = notices.filter((notice) => !notice.read).length + activityUnread;
 
   function switchRole(nextRole: Role) {
-    setRole(nextRole);
-    setTab("overview");
-    setMobileMenu(false);
-    setSelectedPersonId(null);
+    void nextRole;
+    setRole(null);
+    selectAccount(null);
   }
 
   const screenProps = {
     data,
     role,
-    onAddCapture: () => setCaptureOpen(true),
+    currentPersonId: activeAccount.personId ?? "",
+    currentTeam: currentTeam ?? "",
+    onAddCapture: () => {
+      if (
+        activeAccount.personId &&
+        data.consentDeclarations.some((item) => item.personId === activeAccount.personId)
+      )
+        setCaptureOpen(true);
+      else
+        window.alert(
+          "Declare no seu Perfil que o termo foi assinado antes de registrar uma captura.",
+        );
+    },
     onAddEquipment: () => setEquipmentOpen(true),
     onOpenSource: setMetricSource,
     onOpenCapture: setSelectedCaptureId,
@@ -224,7 +244,12 @@ function ClonexWorkspace() {
           <button onClick={() => void resetDemo()}>
             <RotateCcw size={17} /> Restaurar demonstração
           </button>
-          <button onClick={() => setRole(null)}>
+          <button
+            onClick={() => {
+              setRole(null);
+              selectAccount(null);
+            }}
+          >
             <LogOut size={17} /> Sair
           </button>
           <p>Dados salvos somente neste dispositivo.</p>
@@ -313,22 +338,20 @@ function ClonexWorkspace() {
             className="cx-user-chip"
             onClick={() => {
               if (role === "membro") setTab("profile");
-              else if (role === "subleader") setSelectedTeam("JF-1");
+              else if (role === "subleader") setTab("profile");
               else setTab("overview");
             }}
             aria-label="Abrir perfil atual"
           >
             <span>
-              {role === "lider"
-                ? "MG"
-                : currentUser?.name
-                    .split(" ")
-                    .map((part) => part[0])
-                    .slice(0, 2)
-                    .join("")}
+              {activeAccount.name
+                .split(" ")
+                .map((part) => part[0])
+                .slice(0, 2)
+                .join("")}
             </span>
             <div>
-              <strong>{role === "lider" ? "Matheus Gasparetto" : currentUser?.name}</strong>
+              <strong>{activeAccount.name}</strong>
               <small>{ROLE_LABELS[role]}</small>
             </div>
           </button>
@@ -344,7 +367,7 @@ function ClonexWorkspace() {
                   <ConsentKpis
                     data={data}
                     members={data.people.filter(
-                      (person) => person.role === "membro" && person.team === "JF-1",
+                      (person) => person.role === "membro" && person.team === currentTeam,
                     )}
                   />
                 </div>
@@ -377,7 +400,7 @@ function ClonexWorkspace() {
           {!selectedPersonId && tab === "profile" && (
             <MemberDetailScreen
               data={data}
-              personId="p1"
+              personId={activeAccount.personId ?? ""}
               role={role}
               onBack={() => setTab("overview")}
               onOpenCapture={setSelectedCaptureId}
@@ -419,6 +442,9 @@ function ClonexWorkspace() {
               }}
             />
           )}
+          {!selectedPersonId && tab === "supervisors" && role === "lider" && (
+            <SupervisorsScreen data={data} onOpenTeam={setSelectedTeam} />
+          )}
         </main>
 
         <nav className="cx-bottom-nav" aria-label="Navegação móvel">
@@ -442,7 +468,8 @@ function ClonexWorkspace() {
                 tab === "reports" ||
                 tab === "pending" ||
                 tab === "activities" ||
-                tab === "insights"
+                tab === "insights" ||
+                tab === "supervisors"
                   ? "is-active"
                   : ""
               }
@@ -515,7 +542,14 @@ function ClonexWorkspace() {
   );
 }
 
-function AccessScreen({ onEnter }: { onEnter(role: Role): void }) {
+function AccessScreen({
+  data,
+  onEnter,
+}: {
+  data: import("@/domain/types").AppData;
+  onEnter(accountId: string, role: Role): void;
+}) {
+  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const roles: { key: Role; title: string; description: string; image: string }[] = [
     {
       key: "membro",
@@ -551,30 +585,59 @@ function AccessScreen({ onEnter }: { onEnter(role: Role): void }) {
         </p>
       </div>
       <div className="cx-role-grid">
-        {roles.map((item) => (
-          <button key={item.key} onClick={() => onEnter(item.key)}>
-            <span className="cx-role-icon cx-role-icon-3d">
-              <img src={item.image} alt="" loading="eager" />
-            </span>
-            <span>
-              <strong>{item.title}</strong>
-              <small>{item.description}</small>
-            </span>
-            <ChevronRight />
-          </button>
-        ))}
+        {!selectedRole
+          ? roles.map((item) => (
+              <button key={item.key} onClick={() => setSelectedRole(item.key)}>
+                <span className="cx-role-icon cx-role-icon-3d">
+                  <img src={item.image} alt="" loading="eager" />
+                </span>
+                <span>
+                  <strong>{item.title}</strong>
+                  <small>{item.description}</small>
+                </span>
+                <ChevronRight />
+              </button>
+            ))
+          : data.accounts
+              .filter((account) => account.role === selectedRole && account.status !== "desativada")
+              .map((account) => (
+                <button
+                  key={account.id}
+                  onClick={() => onEnter(account.id, account.role)}
+                  className="cx-account-option"
+                >
+                  <span className="cx-account-avatar">{account.name.slice(0, 1)}</span>
+                  <span>
+                    <strong>{account.name}</strong>
+                    <small>{account.email}</small>
+                    <em>
+                      {account.status}
+                      {account.teamId
+                        ? ` · ${data.teams.find((team) => team.id === account.teamId)?.name ?? "Equipe"}`
+                        : ""}
+                    </em>
+                  </span>
+                  <ChevronRight />
+                </button>
+              ))}
       </div>
+      {selectedRole ? (
+        <button className="cx-access-back" onClick={() => setSelectedRole(null)}>
+          ← Voltar aos perfis
+        </button>
+      ) : null}
       <p className="cx-access-note">Nenhuma senha é necessária nesta versão local.</p>
     </main>
   );
 }
 
 function CaptureDialog({ onClose }: { onClose(): void }) {
-  const { data, addCapture } = useAppData();
+  const { data, activeAccount, addCapture } = useAppData();
+  const personId = activeAccount?.personId;
   const [activity, setActivity] = useState("");
   const [minutes, setMinutes] = useState("30");
   const [equipmentId, setEquipmentId] = useState(
-    data?.equipment.find((item) => item.assignedTo === "p1")?.id ?? "",
+    data?.equipment.find((item) => item.assignedTo === personId)?.id ?? "",
   );
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -619,7 +682,7 @@ function CaptureDialog({ onClose }: { onClose(): void }) {
             >
               <option value="">Selecione</option>
               {data?.equipment
-                .filter((item) => item.assignedTo === "p1" || item.status === "disponivel")
+                .filter((item) => item.assignedTo === personId)
                 .map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.type} · {item.model}
@@ -642,16 +705,47 @@ function CaptureDialog({ onClose }: { onClose(): void }) {
 }
 
 function EquipmentDialog({ role, onClose }: { role: Role; onClose(): void }) {
-  const { addEquipment } = useAppData();
+  const { data, activeAccount, addEquipment } = useAppData();
   const [type, setType] = useState<EquipmentType>("capacete");
   const [model, setModel] = useState("");
   const [owner, setOwner] = useState<"clonex" | "proprio">("clonex");
   const [color, setColor] = useState("Roxo");
   const [size, setSize] = useState("M");
   const [quantity, setQuantity] = useState(1);
+  const [firstDeviceNumber, setFirstDeviceNumber] = useState(
+    () => Math.max(0, ...(data?.equipment.map((item) => item.deviceNumber ?? 0) ?? [0])) + 1,
+  );
+  const [allocations, setAllocations] = useState<
+    Array<{ personId?: string; workload: "full_time" | "part_time" }>
+  >([{ workload: "full_time" }]);
+  const teamName = data?.teams.find((team) => team.id === activeAccount?.teamId)?.name;
+  const members =
+    data?.people.filter(
+      (person) => person.role === "membro" && (role === "lider" || person.team === teamName),
+    ) ?? [];
+  function changeQuantity(next: number) {
+    const safe = Math.min(50, Math.max(1, next));
+    setQuantity(safe);
+    setAllocations((current) =>
+      Array.from({ length: safe }, (_, index) => current[index] ?? { workload: "full_time" }),
+    );
+  }
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!model.trim()) return;
+    if (
+      type === "celular" &&
+      owner === "clonex" &&
+      data?.equipment.some(
+        (item) =>
+          item.deviceNumber !== undefined &&
+          item.deviceNumber >= firstDeviceNumber &&
+          item.deviceNumber < firstDeviceNumber + quantity,
+      )
+    ) {
+      window.alert("A sequência escolhida já contém um celular cadastrado.");
+      return;
+    }
     addEquipment(
       {
         type,
@@ -659,6 +753,14 @@ function EquipmentDialog({ role, onClose }: { role: Role; onClose(): void }) {
         owner,
         color,
         quantity,
+        ...(activeAccount?.teamId ? { teamId: activeAccount.teamId } : {}),
+        ...(type === "celular" && owner === "clonex"
+          ? {
+              firstDeviceNumber,
+              firstDeviceEmail: `clonex.cel.${firstDeviceNumber}@gmail.com`,
+            }
+          : {}),
+        allocations,
         ...(type === "capacete" ? { size } : {}),
       },
       role,
@@ -683,6 +785,19 @@ function EquipmentDialog({ role, onClose }: { role: Role; onClose(): void }) {
             <strong>{type === "capacete" ? "Capacete" : "Celular"}</strong>
           </div>
         </div>
+        {type === "celular" && owner === "clonex" ? (
+          <label>
+            Número inicial do aparelho
+            <input
+              type="number"
+              min="1"
+              value={firstDeviceNumber}
+              onChange={(event) => setFirstDeviceNumber(Math.max(1, Number(event.target.value)))}
+              required
+            />
+            <small>Primeiro e-mail: clonex.cel.{firstDeviceNumber}@gmail.com</small>
+          </label>
+        ) : null}
         <div className="cx-form-row">
           <label>
             Tipo
@@ -734,7 +849,7 @@ function EquipmentDialog({ role, onClose }: { role: Role; onClose(): void }) {
           <div>
             <button
               type="button"
-              onClick={() => setQuantity((value) => Math.max(1, value - 1))}
+              onClick={() => changeQuantity(quantity - 1)}
               aria-label="Diminuir quantidade"
             >
               −
@@ -742,13 +857,68 @@ function EquipmentDialog({ role, onClose }: { role: Role; onClose(): void }) {
             <strong>{quantity}</strong>
             <button
               type="button"
-              onClick={() => setQuantity((value) => Math.min(50, value + 1))}
+              onClick={() => changeQuantity(quantity + 1)}
               aria-label="Aumentar quantidade"
             >
               +
             </button>
           </div>
           <small>Serão criados {quantity} patrimônios individuais.</small>
+        </div>
+        {type === "celular" && owner === "clonex" ? (
+          <div className="cx-device-preview">
+            <strong>Contas dos aparelhos</strong>
+            {Array.from({ length: quantity }, (_, index) => (
+              <span key={index}>
+                Celular {firstDeviceNumber + index}: clonex.cel.{firstDeviceNumber + index}
+                @gmail.com
+              </span>
+            ))}
+          </div>
+        ) : null}
+        <div className="cx-batch-allocations">
+          <strong>Alocação por unidade</strong>
+          {allocations.map((allocation, index) => (
+            <div key={index}>
+              <span>#{index + 1}</span>
+              <select
+                value={allocation.personId ?? ""}
+                onChange={(event) =>
+                  setAllocations((current) =>
+                    current.map((item, itemIndex) =>
+                      itemIndex === index
+                        ? event.target.value
+                          ? { ...item, personId: event.target.value }
+                          : { workload: item.workload }
+                        : item,
+                    ),
+                  )
+                }
+              >
+                <option value="">Disponível</option>
+                {members.map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={allocation.workload}
+                onChange={(event) =>
+                  setAllocations((current) =>
+                    current.map((item, itemIndex) =>
+                      itemIndex === index
+                        ? { ...item, workload: event.target.value as "full_time" | "part_time" }
+                        : item,
+                    ),
+                  )
+                }
+              >
+                <option value="full_time">Full time</option>
+                <option value="part_time">Part time</option>
+              </select>
+            </div>
+          ))}
         </div>
         <div className="cx-dialog-actions">
           <button type="button" className="cx-button cx-button--ghost" onClick={onClose}>
@@ -886,7 +1056,10 @@ function MoreDialog({
       : []),
     { key: "activities", label: "Atividades", icon: Activity },
     ...(role === "lider"
-      ? [{ key: "pending" as const, label: "Pendências", icon: AlertTriangle }]
+      ? [
+          { key: "pending" as const, label: "Pendências", icon: AlertTriangle },
+          { key: "supervisors" as const, label: "Sublíderes", icon: Users },
+        ]
       : []),
   ];
   return (

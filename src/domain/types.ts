@@ -1,6 +1,6 @@
 export type Role = "membro" | "subleader" | "lider";
 
-export type CaptureStatus = "pendente" | "aprovado" | "reprovado";
+export type CaptureStatus = "pendente" | "aprovado" | "reprovado" | "cancelado";
 export type EquipmentStatus = "disponivel" | "em_uso" | "manutencao";
 export type EquipmentType = "capacete" | "celular";
 export type WorkloadType = "full_time" | "part_time";
@@ -18,6 +18,8 @@ export type ReportMetric =
 export type AuditCategory =
   "captura" | "pessoa" | "equipamento" | "consentimento" | "meta" | "pagamento" | "ciclo";
 export type ConsentMode = "upload" | "fisico" | "digital";
+export type AccountStatus = "pendente" | "ativa" | "desativada";
+export type WeekendAvailability = "nenhum" | "sabado" | "domingo" | "ambos";
 
 export type AuditEntity =
   | "capture"
@@ -53,13 +55,25 @@ export interface Person {
   serviceName: string;
   supervisorId?: string | undefined;
   minuteCode: string;
+  weekendAvailability: WeekendAvailability;
 }
 
 export interface Team {
   id: string;
   name: string;
   city: string;
-  supervisorId: string;
+  supervisorId?: string | undefined;
+}
+
+export interface AccessAccount {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  status: AccountStatus;
+  personId?: string | undefined;
+  teamId?: string | undefined;
+  createdAt: string;
 }
 
 export interface Company {
@@ -95,6 +109,21 @@ export interface Capture {
   minuteReference?: string;
 }
 
+export interface CaptureChangeRequest {
+  id: string;
+  captureId: string;
+  type: "correcao" | "cancelamento";
+  reason: string;
+  requestedBy: string;
+  requestedAt: string;
+  status: "pendente" | "aprovada" | "rejeitada" | "retirada";
+  original: Pick<Capture, "activity" | "minutes" | "equipmentId" | "recordedAt">;
+  proposed?: Partial<Pick<Capture, "activity" | "minutes" | "equipmentId" | "recordedAt">>;
+  resolvedBy?: string;
+  resolvedAt?: string;
+  resolutionNote?: string;
+}
+
 export interface Equipment {
   id: string;
   type: EquipmentType;
@@ -106,6 +135,9 @@ export interface Equipment {
   color: string;
   batchId: string;
   assetCode: string;
+  teamId?: string | undefined;
+  deviceNumber?: number | undefined;
+  deviceEmail?: string | undefined;
 }
 
 export interface EquipmentAssignment {
@@ -116,6 +148,36 @@ export interface EquipmentAssignment {
   startsAt: string;
   endsAt?: string;
   active: boolean;
+  confirmedAt?: string | undefined;
+  confirmedBy?: string | undefined;
+}
+
+export interface ConsentDeclaration {
+  id: string;
+  personId: string;
+  declaredAt: string;
+  declaredBy: string;
+}
+
+export interface MemberTriage {
+  id: string;
+  personId: string;
+  status: "pendente" | "concluida";
+  decision?: "continuar" | "pausar" | "encerrar";
+  notes?: string;
+  completedAt?: string;
+  completedBy?: string;
+}
+
+export interface WeeklyBusinessForecast {
+  id: string;
+  teamId: string;
+  weekStartsAt: string;
+  expectedPeople: number;
+  expectedHours: number;
+  notes: string;
+  updatedAt: string;
+  updatedBy: string;
 }
 
 export interface ConsentRecord {
@@ -224,19 +286,24 @@ export interface MetricSource {
 
 export interface AppData {
   people: Person[];
+  accounts: AccessAccount[];
   teams: Team[];
   companies: Company[];
   cycles: MemberCycle[];
   captures: Capture[];
+  captureChangeRequests: CaptureChangeRequest[];
   equipment: Equipment[];
   equipmentAssignments: EquipmentAssignment[];
   consentRecords: ConsentRecord[];
+  consentDeclarations: ConsentDeclaration[];
   policyAcceptances: PolicyAcceptance[];
   payments: Payment[];
   notices: Notice[];
   auditEvents: AuditEvent[];
   accessEvents: AppAccessEvent[];
   activitySeen: ActivitySeen[];
+  memberTriages: MemberTriage[];
+  weeklyForecasts: WeeklyBusinessForecast[];
 }
 
 export interface NewCapture {
@@ -252,6 +319,10 @@ export interface NewEquipment {
   size?: string;
   color: string;
   quantity: number;
+  teamId?: string;
+  firstDeviceNumber?: number;
+  firstDeviceEmail?: string;
+  allocations?: Array<{ personId?: string; workload: WorkloadType }>;
 }
 
 export interface NewPerson {
@@ -271,6 +342,7 @@ export interface NewPerson {
   serviceName: string;
   supervisorId?: string;
   minuteCode: string;
+  weekendAvailability: WeekendAvailability;
 }
 
 export interface NewCompany {

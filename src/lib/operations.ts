@@ -169,13 +169,51 @@ export function buildOperationalActions(data: AppData, members: Person[]): Opera
         entityId: capture.id,
       });
   }
+  for (const request of data.captureChangeRequests.filter((item) => item.status === "pendente")) {
+    const capture = data.captures.find((item) => item.id === request.captureId);
+    const person = capture && data.people.find((item) => item.id === capture.personId);
+    if (person && members.some((item) => item.id === person.id))
+      actions.push({
+        id: `change-${request.id}`,
+        category: "captura",
+        title: `Solicitação de ${request.type}`,
+        detail: `${person.name}: ${request.reason}`,
+        status: "atencao",
+        personId: person.id,
+        team: person.team,
+        entityId: capture.id,
+      });
+  }
+  for (const triage of data.memberTriages.filter((item) => item.status === "pendente")) {
+    const person = data.people.find((item) => item.id === triage.personId);
+    if (person && members.some((item) => item.id === person.id))
+      actions.push({
+        id: `triage-${triage.id}`,
+        category: "pessoa",
+        title: "Triagem de 10h pendente",
+        detail: `Defina a continuidade de ${person.name}.`,
+        status: "atencao",
+        personId: person.id,
+        team: person.team,
+      });
+  }
+  for (const team of data.teams.filter((item) => !item.supervisorId))
+    actions.push({
+      id: `team-${team.id}`,
+      category: "pessoa",
+      title: "Equipe sem Sublíder",
+      detail: `${team.name} está explicitamente sem responsável.`,
+      status: "critico",
+      team: team.name,
+    });
   return actions;
 }
 
-export function membersForRole(data: AppData, role: "subleader" | "lider"): Person[] {
+export function membersForRole(
+  data: AppData,
+  role: "subleader" | "lider",
+  teamName?: string,
+): Person[] {
   if (role === "lider") return data.people.filter((person) => person.role === "membro");
-  const supervisor = data.people.find((person) => person.id === "p6");
-  return data.people.filter(
-    (person) => person.role === "membro" && person.team === supervisor?.team,
-  );
+  return data.people.filter((person) => person.role === "membro" && person.team === teamName);
 }

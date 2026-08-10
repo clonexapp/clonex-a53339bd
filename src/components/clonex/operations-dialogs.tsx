@@ -44,7 +44,7 @@ function Modal({
 }
 
 export function MemberRegistrationDialog({ role, onClose }: { role: Role; onClose(): void }) {
-  const { data, addCompany, addPerson } = useAppData();
+  const { data, activeAccount, addCompany, addPerson } = useAppData();
   const [affiliation, setAffiliation] = useState<AffiliationType>("autonomo");
   if (!data) return null;
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -82,7 +82,9 @@ export function MemberRegistrationDialog({ role, onClose }: { role: Role; onClos
         equipmentIds: form.getAll("equipmentIds").map(String),
         serviceName: String(form.get("serviceName")),
         minuteCode: String(form.get("minuteCode")),
-        supervisorId: String(form.get("team")) === "JF-1" ? "p6" : "p7",
+        weekendAvailability: String(form.get("weekendAvailability") || "nenhum") as
+          "nenhum" | "sabado" | "domingo" | "ambos",
+        ...(activeAccount?.personId ? { supervisorId: activeAccount.personId } : {}),
       },
       role,
     );
@@ -114,9 +116,15 @@ export function MemberRegistrationDialog({ role, onClose }: { role: Role; onClos
           </label>
           <label>
             Equipe
-            <select name="team" defaultValue="JF-1">
-              <option>JF-1</option>
-              <option>JF-2</option>
+            <select
+              name="team"
+              defaultValue={data.teams.find((team) => team.id === activeAccount?.teamId)?.name}
+            >
+              {data.teams
+                .filter((team) => role === "lider" || team.id === activeAccount?.teamId)
+                .map((team) => (
+                  <option key={team.id}>{team.name}</option>
+                ))}
             </select>
           </label>
           <label>
@@ -190,11 +198,24 @@ export function MemberRegistrationDialog({ role, onClose }: { role: Role; onClos
               required
             />
           </label>
+          <label>
+            Fim de semana
+            <select name="weekendAvailability" defaultValue="nenhum">
+              <option value="nenhum">Nenhum</option>
+              <option value="sabado">Sábado</option>
+              <option value="domingo">Domingo</option>
+              <option value="ambos">Sábado e domingo</option>
+            </select>
+          </label>
         </div>
         <fieldset className="cx-equipment-options">
           <legend>Equipamentos disponíveis</legend>
           {data.equipment
-            .filter((item) => item.status === "disponivel")
+            .filter(
+              (item) =>
+                item.status === "disponivel" &&
+                (role === "lider" || item.teamId === activeAccount?.teamId),
+            )
             .map((item) => (
               <label key={item.id}>
                 <input name="equipmentIds" value={item.id} type="checkbox" /> {item.type} ·{" "}
@@ -211,8 +232,13 @@ export function MemberRegistrationDialog({ role, onClose }: { role: Role; onClos
 }
 
 export function PaymentDialog({ role, onClose }: { role: Role; onClose(): void }) {
-  const { data, addPayment } = useAppData();
-  const first = data?.people.find((person) => person.role === "membro")?.id ?? "";
+  const { data, activeAccount, addPayment } = useAppData();
+  const teamName = data?.teams.find((team) => team.id === activeAccount?.teamId)?.name;
+  const visibleMembers =
+    data?.people.filter(
+      (person) => person.role === "membro" && (role === "lider" || person.team === teamName),
+    ) ?? [];
+  const first = visibleMembers[0]?.id ?? "";
   const [personId, setPersonId] = useState(first);
   const suggestion = useMemo(() => {
     if (!data) return null;
@@ -265,13 +291,11 @@ export function PaymentDialog({ role, onClose }: { role: Role; onClose(): void }
         <label>
           Membro
           <select value={personId} onChange={(event) => setPersonId(event.target.value)}>
-            {data.people
-              .filter((person) => person.role === "membro")
-              .map((person) => (
-                <option key={person.id} value={person.id}>
-                  {person.name}
-                </option>
-              ))}
+            {visibleMembers.map((person) => (
+              <option key={person.id} value={person.id}>
+                {person.name}
+              </option>
+            ))}
           </select>
         </label>
         <div className="cx-payment-source">

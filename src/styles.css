@@ -1041,8 +1041,9 @@ select:focus-visible {
   overflow: hidden;
   padding: 12px 18px 12px 12px;
   border-radius: 16px;
-  background: #171716;
-  color: #fff;
+  border: 1px solid var(--cx-line);
+  background: #fff;
+  color: var(--cx-text);
 }
 .cx-equipment-dialog-art img {
   width: 92px;
@@ -2633,6 +2634,28 @@ select:focus-visible {
   display: grid;
   gap: 3px;
 }
+.cx-history-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 12px;
+}
+.cx-history-button > span {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  text-align: left;
+}
+.cx-history-button strong,
+.cx-history-button small {
+  display: block;
+  line-height: 1.35;
+}
+.cx-history-button small {
+  white-space: normal;
+}
 .cx-member-history small {
   color: var(--cx-muted);
 }
@@ -2713,6 +2736,206 @@ select:focus-visible {
 .cx-operation-dialog {
   width: min(820px, 100%);
   padding: 26px;
+}
+.cx-dialog:has(.cx-equipment-dialog-art) {
+  width: min(620px, 100%);
+  max-height: min(88vh, 760px);
+  padding: 20px;
+}
+.cx-dialog:has(.cx-equipment-dialog-art) .cx-equipment-dialog-art {
+  min-height: 76px;
+}
+.cx-dialog:has(.cx-equipment-dialog-art) .cx-equipment-dialog-art img {
+  width: 66px;
+  height: 66px;
+  object-fit: contain;
+}
+.cx-device-preview,
+.cx-batch-allocations,
+.cx-change-request,
+.cx-forecast-summary {
+  display: grid;
+  gap: 9px;
+  padding: 14px;
+  border: 1px solid var(--cx-line);
+  border-radius: 14px;
+  background: #fafaf8;
+}
+.cx-device-preview {
+  max-height: 120px;
+  overflow: auto;
+  font-size: 12px;
+}
+.cx-batch-allocations {
+  max-height: 190px;
+  overflow: auto;
+}
+.cx-batch-allocations > div {
+  display: grid;
+  grid-template-columns: 32px 1fr 120px;
+  gap: 8px;
+  align-items: center;
+}
+.cx-change-request {
+  margin-top: 8px;
+}
+.cx-change-request input,
+.cx-change-request select,
+.cx-change-request textarea,
+.cx-forecast-form input,
+.cx-forecast-form select,
+.cx-forecast-form textarea {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--cx-line);
+  border-radius: 10px;
+  padding: 9px 11px;
+  background: #fff;
+}
+.cx-request-actions,
+.cx-manual-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cx-account-option em {
+  color: #6d4aff;
+  font-size: 11px;
+  font-style: normal;
+  text-transform: capitalize;
+}
+.cx-account-avatar {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 14px;
+  background: #181817;
+  color: #fff;
+  font-weight: 800;
+}
+.cx-access-back {
+  grid-column: 2;
+  justify-self: start;
+  border: 0;
+  background: transparent;
+  color: #5b48db;
+  cursor: pointer;
+}
+.cx-supervisor-manual h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.cx-manual-actions button,
+.cx-edit-supervisor {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--cx-line);
+  border-radius: 10px;
+  padding: 9px 12px;
+  background: #fff;
+  cursor: pointer;
+}
+.cx-manual-index {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 12px 0;
+}
+.cx-manual-index a {
+  flex: 0 0 auto;
+  color: #5b48db;
+  font-size: 12px;
+}
+.cx-manual-chapters {
+  display: grid;
+  gap: 8px;
+}
+.cx-manual-chapters details {
+  border: 1px solid var(--cx-line);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.cx-manual-chapters summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.cx-manual-chapters p {
+  color: var(--cx-muted);
+  line-height: 1.65;
+}
+.cx-forecast-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.cx-forecast-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
+}
+.cx-forecast-form label:nth-child(4),
+.cx-forecast-form button {
+  grid-column: 1/-1;
+}
+.cx-supervisor-card {
+  display: grid;
+  overflow: hidden;
+}
+.cx-supervisor-card > button:first-child {
+  display: grid;
+  gap: 15px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.cx-edit-supervisor {
+  margin-top: 12px;
+  justify-content: center;
+}
+.cx-account-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #f5f3ff;
+}
+.cx-account-summary span:first-child {
+  display: grid;
+  gap: 3px;
+}
+.cx-account-status {
+  align-self: center;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #fff1cf;
+  text-transform: capitalize;
+  font-size: 11px;
+  font-weight: 750;
+}
+.cx-consent-declared {
+  padding: 10px;
+  border-radius: 10px;
+  background: #eef9f4;
+  color: #287258;
+  font-size: 12px;
+}
+.cx-claim-equipment,
+.cx-triage-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+.cx-device-email {
+  overflow-wrap: anywhere;
+  color: #5b48db !important;
+  font-size: 11px;
 }
 .cx-operation-dialog h2 {
   margin: 6px 0;
@@ -2887,6 +3110,18 @@ select:focus-visible {
   }
 }
 @media (max-width: 600px) {
+  .cx-forecast-form {
+    grid-template-columns: 1fr;
+  }
+  .cx-batch-allocations > div {
+    grid-template-columns: 26px 1fr;
+  }
+  .cx-batch-allocations > div select:last-child {
+    grid-column: 2;
+  }
+  .cx-manual-actions {
+    margin-top: 10px;
+  }
   .cx-page-heading {
     align-items: stretch;
     flex-direction: column;

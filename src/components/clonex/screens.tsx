@@ -21,6 +21,8 @@ interface ScreenProps {
   onAddPayment?(): void;
   onOpenSource(source: MetricSource): void;
   onOpenCapture(id: string): void;
+  currentPersonId?: string;
+  currentTeam?: string;
 }
 
 export function OverviewScreen({
@@ -29,16 +31,18 @@ export function OverviewScreen({
   onAddCapture,
   onOpenSource,
   onOpenCapture,
+  currentPersonId,
+  currentTeam,
 }: ScreenProps) {
-  const member = data.people.find((person) => person.id === "p1") ?? data.people[0];
+  const member = data.people.find((person) => person.id === currentPersonId) ?? data.people[0];
   const memberCaptures = data.captures.filter((capture) => capture.personId === member?.id);
   const memberMinutes = memberCaptures
     .filter((capture) => capture.status === "aprovado")
     .reduce((sum, capture) => sum + capture.minutes, 0);
   const scope =
     role === "membro"
-      ? { kind: "person" as const, value: member?.id ?? "p1" }
-      : reportScopeFor(role);
+      ? { kind: "person" as const, value: member?.id ?? currentPersonId ?? "" }
+      : reportScopeFor(role, currentTeam);
   const overviewMetrics = buildReportMetrics(data, scope, "month");
   const quantitySource = overviewMetrics[0];
   const qualitySource = overviewMetrics[2];
@@ -111,7 +115,9 @@ export function OverviewScreen({
   return (
     <div className="cx-page-stack">
       <PageHeading
-        eyebrow={role === "lider" ? "Visão geral da cidade" : "Operação JF-1"}
+        eyebrow={
+          role === "lider" ? "Visão geral da cidade" : `Operação ${currentTeam ?? "da equipe"}`
+        }
         title={role === "lider" ? "Controle da operação" : "Sua equipe hoje"}
         description="Indicadores atualizados a partir dos registros da equipe."
       />
@@ -144,12 +150,14 @@ export function OverviewScreen({
               (capture) =>
                 capture.status === "aprovado" &&
                 (role === "lider" ||
-                  data.people.find((person) => person.id === capture.personId)?.team === "JF-1"),
+                  data.people.find((person) => person.id === capture.personId)?.team ===
+                    currentTeam),
             )
             .reduce((sum, capture) => sum + capture.minutes, 0)}
           goalHours={data.people
             .filter(
-              (person) => person.role === "membro" && (role === "lider" || person.team === "JF-1"),
+              (person) =>
+                person.role === "membro" && (role === "lider" || person.team === currentTeam),
             )
             .reduce(
               (sum, person) =>
@@ -169,26 +177,31 @@ export function OverviewScreen({
               <h2>Ritmo por equipe</h2>
             </div>
           </div>
-          {["JF-1", "JF-2"].map((team) => {
-            const people = data.people.filter(
-              (person) => person.team === team && person.role === "membro",
-            );
-            const ids = new Set(people.map((person) => person.id));
-            const minutes = data.captures
-              .filter((capture) => ids.has(capture.personId) && capture.status === "aprovado")
-              .reduce((sum, capture) => sum + capture.minutes, 0);
-            const goal = people.reduce((sum, person) => sum + person.goalHours, 0);
-            return (
-              <Progress
-                key={team}
-                label={`${team} · ${formatHours(minutes)} de ${goal}h`}
-                value={goal ? (minutes / 60 / goal) * 100 : 0}
-                onClick={() =>
-                  onOpenSource(buildReportMetrics(data, { kind: "team", value: team }, "month")[0])
-                }
-              />
-            );
-          })}
+          {data.teams
+            .filter((item) => role === "lider" || item.name === currentTeam)
+            .map((item) => item.name)
+            .map((team) => {
+              const people = data.people.filter(
+                (person) => person.team === team && person.role === "membro",
+              );
+              const ids = new Set(people.map((person) => person.id));
+              const minutes = data.captures
+                .filter((capture) => ids.has(capture.personId) && capture.status === "aprovado")
+                .reduce((sum, capture) => sum + capture.minutes, 0);
+              const goal = people.reduce((sum, person) => sum + person.goalHours, 0);
+              return (
+                <Progress
+                  key={team}
+                  label={`${team} · ${formatHours(minutes)} de ${goal}h`}
+                  value={goal ? (minutes / 60 / goal) * 100 : 0}
+                  onClick={() =>
+                    onOpenSource(
+                      buildReportMetrics(data, { kind: "team", value: team }, "month")[0],
+                    )
+                  }
+                />
+              );
+            })}
         </Card>
         <Card>
           <div className="cx-card-heading">
@@ -223,12 +236,24 @@ export function OverviewScreen({
   );
 }
 
-export function CapturesScreen({ data, role, onAddCapture, onOpenCapture }: ScreenProps) {
+export function CapturesScreen({
+  data,
+  role,
+  onAddCapture,
+  onOpenCapture,
+  currentPersonId,
+  currentTeam,
+}: ScreenProps) {
   const { updateCaptureStatus } = useAppData();
   const captures =
     role === "membro"
-      ? data.captures.filter((capture) => capture.personId === "p1")
-      : data.captures;
+      ? data.captures.filter((capture) => capture.personId === currentPersonId)
+      : role === "subleader"
+        ? data.captures.filter(
+            (capture) =>
+              data.people.find((person) => person.id === capture.personId)?.team === currentTeam,
+          )
+        : data.captures;
   return (
     <div className="cx-page-stack">
       <PageHeading
@@ -376,7 +401,13 @@ export function PeopleScreen({ data, role }: ScreenProps) {
   );
 }
 
-export function EquipmentScreen({ data, onAddEquipment }: ScreenProps) {
+export function EquipmentScreen({
+  data,
+  role,
+  onAddEquipment,
+  currentPersonId,
+  currentTeam,
+}: ScreenProps) {
   const [typeFilter, setTypeFilter] = useState<"all" | "capacete" | "celular">("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [ownerFilter, setOwnerFilter] = useState("all");
@@ -386,6 +417,10 @@ export function EquipmentScreen({ data, onAddEquipment }: ScreenProps) {
       (candidate) => candidate.equipmentId === item.id && candidate.active,
     );
     return (
+      (role === "lider" ||
+        (role === "membro"
+          ? item.assignedTo === currentPersonId
+          : item.teamId === data.teams.find((team) => team.name === currentTeam)?.id)) &&
       (typeFilter === "all" || item.type === typeFilter) &&
       (statusFilter === "all" || item.status === statusFilter) &&
       (ownerFilter === "all" || item.owner === ownerFilter) &&
@@ -487,6 +522,7 @@ export function EquipmentScreen({ data, onAddEquipment }: ScreenProps) {
                   {item.assetCode} · {item.color}
                   {item.size ? ` · tamanho ${item.size}` : ""}
                 </p>
+                {item.deviceEmail ? <p className="cx-device-email">{item.deviceEmail}</p> : null}
                 <p>
                   {person
                     ? `Com ${person.name}`
@@ -510,11 +546,16 @@ export function EquipmentScreen({ data, onAddEquipment }: ScreenProps) {
   );
 }
 
-export function FinanceScreen({ data, onAddPayment }: ScreenProps) {
-  const paid = data.payments
+export function FinanceScreen({ data, role, onAddPayment, currentTeam }: ScreenProps) {
+  const payments = data.payments.filter(
+    (payment) =>
+      role === "lider" ||
+      data.people.find((person) => person.id === payment.personId)?.team === currentTeam,
+  );
+  const paid = payments
     .filter((payment) => payment.status === "pago")
     .reduce((sum, payment) => sum + payment.amount, 0);
-  const forecast = data.payments
+  const forecast = payments
     .filter((payment) => payment.status === "previsto")
     .reduce((sum, payment) => sum + payment.amount, 0);
   return (
@@ -541,7 +582,7 @@ export function FinanceScreen({ data, onAddPayment }: ScreenProps) {
         <StatCard label="Previsto" value={formatMoney(forecast)} detail="Próximos fechamentos" />
         <StatCard
           label="Horas remuneradas"
-          value={`${data.payments.reduce((sum, payment) => sum + payment.hours, 0)}h`}
+          value={`${payments.reduce((sum, payment) => sum + payment.hours, 0)}h`}
           detail="No período listado"
         />
       </div>
@@ -558,7 +599,7 @@ export function FinanceScreen({ data, onAddPayment }: ScreenProps) {
               </tr>
             </thead>
             <tbody>
-              {data.payments.map((payment) => (
+              {payments.map((payment) => (
                 <tr key={payment.id}>
                   <td>
                     <strong>
@@ -581,8 +622,8 @@ export function FinanceScreen({ data, onAddPayment }: ScreenProps) {
   );
 }
 
-export function GoalsScreen({ data }: ScreenProps) {
-  const member = data.people.find((person) => person.id === "p1");
+export function GoalsScreen({ data, currentPersonId }: ScreenProps) {
+  const member = data.people.find((person) => person.id === currentPersonId);
   if (!member) return <EmptyState>Perfil de membro não encontrado.</EmptyState>;
   const minutes = data.captures
     .filter((capture) => capture.personId === member.id)

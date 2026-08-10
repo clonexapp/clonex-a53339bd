@@ -75,7 +75,7 @@ export function ActivitiesScreen({
   onOpenCapture(id: string): void;
   onOpenPerson(id: string): void;
 }) {
-  const { markActivitiesSeen } = useAppData();
+  const { activeAccount, markActivitiesSeen } = useAppData();
   const [tab, setTab] = useState<"actions" | "history">("actions");
   const [team, setTeam] = useState("all");
   const [category, setCategory] = useState<"all" | AuditCategory>("all");
@@ -83,7 +83,8 @@ export function ActivitiesScreen({
   const [period, setPeriod] = useState("30");
   const [targetRole, setTargetRole] = useState("all");
   const [situation, setSituation] = useState("all");
-  const members = membersForRole(data, role);
+  const activeTeam = data.teams.find((item) => item.id === activeAccount?.teamId)?.name;
+  const members = membersForRole(data, role, activeTeam);
   const ids = new Set(members.map((item) => item.id));
   const actions = buildOperationalActions(data, members).filter(
     (item) =>
@@ -225,7 +226,12 @@ export function InsightsScreen({
   data: AppData;
   onOpenPerson(id: string): void;
 }) {
-  const members = membersForRole(data, "subleader");
+  const { activeAccount } = useAppData();
+  const members = membersForRole(
+    data,
+    "subleader",
+    data.teams.find((item) => item.id === activeAccount?.teamId)?.name,
+  );
   const actions = buildOperationalActions(data, members);
   const approved = members.reduce((sum, person) => sum + approvedMinutes(data, person.id), 0);
   const projected = members.reduce(
@@ -238,7 +244,7 @@ export function InsightsScreen({
         <div>
           <span className="cx-eyebrow">Leitura da operação</span>
           <h1>Insights</h1>
-          <p>Riscos, ritmo, projeção, revisões, pagamentos e equipamentos da JF-1.</p>
+          <p>Riscos, ritmo, projeção, revisões, pagamentos e equipamentos da sua equipe.</p>
         </div>
       </div>
       <ConsentKpis data={data} members={members} />
@@ -400,6 +406,154 @@ export function LeaderOverview({
   );
 }
 
+export function SupervisorsScreen({
+  data,
+  onOpenTeam,
+}: {
+  data: AppData;
+  onOpenTeam(team: string): void;
+}) {
+  const { saveSupervisor } = useAppData();
+  const [editing, setEditing] = useState<string | null>(null);
+  const supervisors = data.accounts.filter((account) => account.role === "subleader");
+  return (
+    <div className="cx-page-stack">
+      <div className="cx-page-heading">
+        <div>
+          <span className="cx-eyebrow">Governança de equipes</span>
+          <h1>Sublíderes</h1>
+          <p>Contas pendentes, responsáveis, operação e riscos por equipe.</p>
+        </div>
+        <button className="cx-button" onClick={() => setEditing("new")}>
+          Cadastrar Sublíder
+        </button>
+      </div>
+      <div className="cx-team-grid">
+        {supervisors.map((account) => {
+          const team = data.teams.find((item) => item.id === account.teamId);
+          const members = data.people.filter(
+            (person) => person.role === "membro" && person.team === team?.name,
+          );
+          const minutes = members.reduce(
+            (sum, person) => sum + approvedMinutes(data, person.id),
+            0,
+          );
+          const goal = members.reduce((sum, person) => sum + person.goalHours, 0);
+          const forecast = data.weeklyForecasts.find((item) => item.teamId === team?.id);
+          return (
+            <article key={account.id} className="cx-team-card cx-supervisor-card">
+              <button onClick={() => team && onOpenTeam(team.name)}>
+                <div>
+                  <span className="cx-avatar">
+                    {account.name
+                      .split(" ")
+                      .map((part) => part[0])
+                      .slice(0, 2)
+                      .join("")}
+                  </span>
+                  <span>
+                    <small>
+                      {account.status} · {team?.name ?? "Sem equipe"}
+                    </small>
+                    <strong>{account.name}</strong>
+                    <em>{account.email}</em>
+                  </span>
+                  <ChevronRight />
+                </div>
+                <GoalBattery minutes={minutes} goalHours={goal} compact />
+                <dl>
+                  <div>
+                    <dt>Membros</dt>
+                    <dd>{members.length}</dd>
+                  </div>
+                  <div>
+                    <dt>Termos</dt>
+                    <dd>
+                      {members.filter((person) => hasValidConsent(data, person.id)).length}/
+                      {members.length}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Expectativa</dt>
+                    <dd>{forecast?.expectedHours ?? 0}h</dd>
+                  </div>
+                </dl>
+              </button>
+              <button className="cx-edit-supervisor" onClick={() => setEditing(account.id)}>
+                Editar conta
+              </button>
+            </article>
+          );
+        })}
+      </div>
+      {editing ? (
+        <div
+          className="cx-dialog-backdrop"
+          onMouseDown={(event) => event.target === event.currentTarget && setEditing(null)}
+        >
+          <section className="cx-dialog cx-operation-dialog">
+            <button className="cx-dialog-close" onClick={() => setEditing(null)}>
+              ×
+            </button>
+            <span className="cx-eyebrow">Conta operacional</span>
+            <h2>{editing === "new" ? "Novo Sublíder" : "Editar Sublíder"}</h2>
+            {(() => {
+              const account = data.accounts.find((item) => item.id === editing);
+              return (
+                <form
+                  className="cx-operation-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const form = new FormData(event.currentTarget);
+                    saveSupervisor({
+                      ...(account ? { accountId: account.id } : {}),
+                      ...(account?.personId ? { personId: account.personId } : {}),
+                      name: String(form.get("name")),
+                      email: String(form.get("email")),
+                      teamId: String(form.get("teamId")),
+                      status: String(form.get("status")) as "pendente" | "ativa" | "desativada",
+                    });
+                    setEditing(null);
+                  }}
+                >
+                  <label>
+                    Nome
+                    <input name="name" defaultValue={account?.name} required />
+                  </label>
+                  <label>
+                    E-mail único
+                    <input name="email" type="email" defaultValue={account?.email} required />
+                  </label>
+                  <label>
+                    Equipe
+                    <select name="teamId" defaultValue={account?.teamId}>
+                      {data.teams.map((team) => (
+                        <option key={team.id} value={team.id}>
+                          {team.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Estado
+                    <select name="status" defaultValue={account?.status ?? "pendente"}>
+                      <option value="pendente">Pendente</option>
+                      <option value="ativa">Ativa</option>
+                      <option value="desativada">Desativada</option>
+                    </select>
+                  </label>
+                  <p className="cx-muted">Nenhuma senha é criada ou armazenada nesta etapa.</p>
+                  <button className="cx-button">Salvar</button>
+                </form>
+              );
+            })()}
+          </section>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function TeamPanel({
   data,
   teamName,
@@ -419,6 +573,10 @@ export function TeamPanel({
   const team = data.teams.find((item) => item.name === teamName);
   const members = data.people.filter((p) => p.role === "membro" && p.team === teamName);
   const supervisor = data.people.find((p) => p.id === team?.supervisorId);
+  const supervisorAccount = data.accounts.find(
+    (account) => account.personId === supervisor?.id && account.role === "subleader",
+  );
+  const latestForecast = data.weeklyForecasts.find((item) => item.teamId === team?.id);
   const minutes = members.reduce((sum, p) => sum + approvedMinutes(data, p.id), 0);
   const goal = members.reduce((sum, p) => sum + p.goalHours, 0);
   const assignments = data.equipmentAssignments.filter(
@@ -440,6 +598,15 @@ export function TeamPanel({
           </button>
         </header>
         <div className="cx-source-body">
+          <div className="cx-account-summary">
+            <span>
+              <small>Conta</small>
+              <strong>{supervisorAccount?.email ?? "Equipe sem responsável"}</strong>
+            </span>
+            <span className={`cx-account-status is-${supervisorAccount?.status ?? "desativada"}`}>
+              {supervisorAccount?.status ?? "crítico"}
+            </span>
+          </div>
           <GoalBattery minutes={minutes} goalHours={goal} />
           <div className="cx-team-summary">
             <span>
@@ -469,6 +636,14 @@ export function TeamPanel({
               {members.reduce((s, p) => s + memberProjection(data, p).projection, 0).toFixed(0)}h
               projetadas
             </span>
+          </div>
+          <div className="cx-forecast-summary">
+            <strong>Expectativa semanal</strong>
+            <span>
+              {latestForecast?.expectedPeople ?? 0} novas pessoas ·{" "}
+              {latestForecast?.expectedHours ?? 0}h estimadas
+            </span>
+            <p>{latestForecast?.notes || "Ainda não preenchida pelo Sublíder."}</p>
           </div>
           <h3>Membros da equipe</h3>
           <div className="cx-team-members">
@@ -543,6 +718,10 @@ export function CaptureDetailPanel({
   captureId: string;
   onClose(): void;
 }) {
+  const { activeAccount, requestCaptureChange, withdrawCaptureChange, resolveCaptureChange } =
+    useAppData();
+  const [requestType, setRequestType] = useState<"correcao" | "cancelamento">("correcao");
+  const [reason, setReason] = useState("");
   const capture = data.captures.find((c) => c.id === captureId);
   useEffect(() => {
     const close = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -555,6 +734,11 @@ export function CaptureDetailPanel({
   const events = data.auditEvents.filter(
     (e) => e.entity === "capture" && e.entityId === capture.id,
   );
+  const changeRequest = data.captureChangeRequests.find(
+    (item) => item.captureId === capture.id && item.status === "pendente",
+  );
+  const canRequest =
+    activeAccount?.role === "membro" && activeAccount.personId === capture.personId;
   return (
     <div className="cx-source-layer" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <section className="cx-source-panel" role="dialog" aria-modal="true">
@@ -608,6 +792,104 @@ export function CaptureDetailPanel({
               </dd>
             </div>
           </dl>
+          {changeRequest ? (
+            <div className="cx-change-request">
+              <span className="cx-eyebrow">Solicitação pendente</span>
+              <strong>{changeRequest.type === "correcao" ? "Correção" : "Cancelamento"}</strong>
+              <p>{changeRequest.reason}</p>
+              {canRequest ? (
+                <button
+                  className="cx-button cx-button--ghost"
+                  onClick={() => withdrawCaptureChange(changeRequest.id)}
+                >
+                  Retirar solicitação
+                </button>
+              ) : activeAccount?.role === "subleader" ? (
+                <div className="cx-request-actions">
+                  <button
+                    className="cx-button"
+                    onClick={() => resolveCaptureChange(changeRequest.id, true)}
+                  >
+                    Aprovar
+                  </button>
+                  <button
+                    className="cx-button cx-button--ghost"
+                    onClick={() => resolveCaptureChange(changeRequest.id, false)}
+                  >
+                    Rejeitar
+                  </button>
+                </div>
+              ) : (
+                <small>A decisão cabe ao Sublíder responsável pela equipe.</small>
+              )}
+            </div>
+          ) : canRequest ? (
+            <form
+              className="cx-change-request"
+              onSubmit={(event) => {
+                event.preventDefault();
+                requestCaptureChange({
+                  captureId: capture.id,
+                  type: requestType,
+                  reason,
+                  ...(requestType === "correcao"
+                    ? {
+                        proposed: {
+                          activity: String(new FormData(event.currentTarget).get("activity")),
+                          minutes: Number(new FormData(event.currentTarget).get("minutes")),
+                          equipmentId: String(new FormData(event.currentTarget).get("equipmentId")),
+                          recordedAt: String(new FormData(event.currentTarget).get("recordedAt")),
+                        },
+                      }
+                    : {}),
+                });
+                setReason("");
+              }}
+            >
+              <span className="cx-eyebrow">Corrigir registro</span>
+              <select
+                value={requestType}
+                onChange={(event) => setRequestType(event.target.value as typeof requestType)}
+              >
+                <option value="correcao">Solicitar correção</option>
+                <option value="cancelamento">Solicitar cancelamento</option>
+              </select>
+              {requestType === "correcao" ? (
+                <>
+                  <input name="activity" defaultValue={capture.activity} required />
+                  <input
+                    name="minutes"
+                    type="number"
+                    min="1"
+                    defaultValue={capture.minutes}
+                    required
+                  />
+                  <input
+                    name="recordedAt"
+                    type="datetime-local"
+                    defaultValue={capture.recordedAt.slice(0, 16)}
+                    required
+                  />
+                  <select name="equipmentId" defaultValue={capture.equipmentId}>
+                    {data.equipment
+                      .filter((item) => item.assignedTo === capture.personId)
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.assetCode} · {item.model}
+                        </option>
+                      ))}
+                  </select>
+                </>
+              ) : null}
+              <textarea
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder="Explique obrigatoriamente o motivo"
+                required
+              />
+              <button className="cx-button">Enviar ao Sublíder</button>
+            </form>
+          ) : null}
           <h3>Histórico</h3>
           <div className="cx-audit-list">
             {events.length ? (

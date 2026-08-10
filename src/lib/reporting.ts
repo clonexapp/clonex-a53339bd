@@ -285,9 +285,12 @@ export function buildPendingReviewsSource(
   };
 }
 
-export function reportScopeFor(role: "subleader" | "lider"): ReportScope {
+export function reportScopeFor(
+  role: "subleader" | "lider",
+  teamName = "Equipe Pedro",
+): ReportScope {
   return role === "subleader"
-    ? { kind: "team", value: "JF-1" }
+    ? { kind: "team", value: teamName }
     : { kind: "city", value: "Juiz de Fora" };
 }
 

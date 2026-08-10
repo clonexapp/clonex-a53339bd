@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { AppData, MetricSource, ReportPeriod, Role } from "@/domain/types";
 import { buildReportMetrics, formatReportText, reportScopeFor } from "@/lib/reporting";
 import { Card, Progress } from "./dashboard-ui";
+import { useAppData } from "@/state/use-app-data";
 
 const METRIC_ICONS = {
   quantity: Database,
@@ -35,9 +36,11 @@ export function ReportsScreen({
   role: Exclude<Role, "membro">;
   onOpenSource(source: MetricSource): void;
 }) {
+  const { activeAccount } = useAppData();
   const [period, setPeriod] = useState<ReportPeriod>("week");
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
-  const scope = useMemo(() => reportScopeFor(role), [role]);
+  const team = data.teams.find((item) => item.id === activeAccount?.teamId);
+  const scope = useMemo(() => reportScopeFor(role, team?.name), [role, team?.name]);
   const metrics = useMemo(() => buildReportMetrics(data, scope, period), [data, period, scope]);
   const teams = useMemo(
     () =>
@@ -53,7 +56,25 @@ export function ReportsScreen({
 
   async function handleCopy() {
     try {
-      await copyText(formatReportText(metrics, scope, period));
+      const forecasts =
+        role === "lider"
+          ? data.teams.flatMap((item) => {
+              const forecast = data.weeklyForecasts.find((entry) => entry.teamId === item.id);
+              return forecast
+                ? [
+                    `${item.name}: ${forecast.expectedPeople} novas pessoas/negócios, ${forecast.expectedHours}h. ${forecast.notes || ""}`,
+                  ]
+                : [];
+            })
+          : data.weeklyForecasts
+              .filter((item) => item.teamId === team?.id)
+              .map(
+                (forecast) =>
+                  `${forecast.expectedPeople} novas pessoas/negócios, ${forecast.expectedHours}h. ${forecast.notes || ""}`,
+              );
+      await copyText(
+        `${formatReportText(metrics, scope, period)}${forecasts.length ? `\nExpectativa semanal:\n${forecasts.join("\n")}` : ""}`,
+      );
       setCopyStatus("copied");
     } catch {
       setCopyStatus("failed");
@@ -66,7 +87,7 @@ export function ReportsScreen({
       <div className="cx-report-heading">
         <div>
           <span className="cx-eyebrow">
-            {role === "lider" ? "Cidade · Juiz de Fora" : "Minha equipe · JF-1"}
+            {role === "lider" ? "Cidade · Juiz de Fora" : `Minha equipe · ${team?.name ?? "—"}`}
           </span>
           <h1>Relatórios</h1>
           <p>Quantidade, constância e qualidade com origem verificável.</p>

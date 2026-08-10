@@ -14,6 +14,7 @@ import {
 import { Card, EmptyState, StatusBadge } from "@/components/clonex/dashboard-ui";
 import { GoalBattery } from "@/components/clonex/goal-battery";
 import { Gamification } from "@/components/clonex/management-screens";
+import { SupervisorManual } from "@/components/clonex/supervisor-manual";
 import type { AppData, Role } from "@/domain/types";
 import { formatDate, formatHours, formatMoney } from "@/lib/formatters";
 import { approvedMinutes, memberProjection } from "@/lib/operations";
@@ -38,8 +39,10 @@ export function PeopleOperationsScreen({
   onSelectCompany(id: string): void;
   onAddPerson(): void;
 }) {
+  const { activeAccount } = useAppData();
+  const activeTeam = data.teams.find((team) => team.id === activeAccount?.teamId)?.name;
   const members = data.people.filter(
-    (person) => person.role === "membro" && (role === "lider" || person.team === "JF-1"),
+    (person) => person.role === "membro" && (role === "lider" || person.team === activeTeam),
   );
   const visibleCompanyIds = new Set(
     members.flatMap((person) => (person.companyId ? [person.companyId] : [])),
@@ -140,7 +143,16 @@ export function MemberDetailScreen({
   onBack(): void;
   onOpenCapture?(id: string): void;
 }) {
-  const { addConsent, addSignedConsent, downloadConsent, updateCycle } = useAppData();
+  const {
+    addConsent,
+    addSignedConsent,
+    downloadConsent,
+    updateCycle,
+    declareConsent,
+    confirmEquipment,
+    completeTriage,
+  } = useAppData();
+  const [assetCode, setAssetCode] = useState("");
   const [downloadError, setDownloadError] = useState(false);
   const person = data.people.find((item) => item.id === personId);
   if (!person) return <EmptyState>Membro não encontrado.</EmptyState>;
@@ -157,6 +169,10 @@ export function MemberDetailScreen({
   const captures = data.captures.filter((item) => item.personId === person.id);
   const payments = data.payments.filter((item) => item.personId === person.id);
   const projection = memberProjection(data, person);
+  const declaration = data.consentDeclarations.find((item) => item.personId === person.id);
+  const triage = data.memberTriages.find(
+    (item) => item.personId === person.id && item.status === "pendente",
+  );
 
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -207,6 +223,12 @@ export function MemberDetailScreen({
           {person.active ? "Ativo" : "Inativo"}
         </span>
       </div>
+      {person.role === "subleader" ? (
+        <SupervisorManual
+          data={data}
+          teamId={data.teams.find((team) => team.name === person.team)?.id ?? ""}
+        />
+      ) : null}
       <div className="cx-detail-grid">
         <Card>
           <span className="cx-eyebrow">Jornada e contato</span>
@@ -233,6 +255,19 @@ export function MemberDetailScreen({
             <p>
               <strong>{person.minuteCode}</strong>
               <span>Código individual Minute</span>
+            </p>
+            <p>
+              <strong>
+                {
+                  {
+                    nenhum: "Sem fim de semana",
+                    sabado: "Sábado",
+                    domingo: "Domingo",
+                    ambos: "Sábado e domingo",
+                  }[person.weekendAvailability]
+                }
+              </strong>
+              <span>Disponibilidade no fim de semana</span>
             </p>
           </div>
         </Card>
@@ -339,6 +374,28 @@ export function MemberDetailScreen({
           ) : (
             <EmptyState>Sem equipamento alocado.</EmptyState>
           )}
+          {role === "membro" ? (
+            <form
+              className="cx-claim-equipment"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (confirmEquipment(person.id, assetCode)) setAssetCode("");
+              }}
+            >
+              <label>
+                Confirmar kit pelo patrimônio
+                <input
+                  value={assetCode}
+                  onChange={(event) => setAssetCode(event.target.value)}
+                  placeholder="CX-0001"
+                  required
+                />
+              </label>
+              <button className="cx-button" type="submit">
+                Confirmar recebimento
+              </button>
+            </form>
+          ) : null}
         </Card>
         <Card>
           <div className="cx-card-heading">
@@ -413,8 +470,48 @@ export function MemberDetailScreen({
               </div>
             </>
           ) : null}
+          {role === "membro" && !declaration ? (
+            <button
+              className="cx-button cx-declare-consent"
+              onClick={() => declareConsent(person.id)}
+            >
+              Declaro que assinei o termo
+            </button>
+          ) : null}
+          {declaration ? (
+            <p className="cx-consent-declared">
+              Declaração enviada em {formatDate(declaration.declaredAt)}.{" "}
+              {consent ? "Validada pelo Sublíder." : "Aguardando validação oficial."}
+            </p>
+          ) : null}
         </Card>
       </div>
+      {triage && role !== "membro" ? (
+        <Card>
+          <span className="cx-eyebrow">Triagem de 10 horas</span>
+          <h2>Decisão de continuidade</h2>
+          <form
+            className="cx-triage-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              completeTriage(
+                triage.id,
+                String(form.get("decision")) as "continuar" | "pausar" | "encerrar",
+                String(form.get("notes")),
+              );
+            }}
+          >
+            <select name="decision">
+              <option value="continuar">Continuar</option>
+              <option value="pausar">Pausar</option>
+              <option value="encerrar">Encerrar</option>
+            </select>
+            <textarea name="notes" placeholder="Observação da triagem" required />
+            <button className="cx-button">Concluir triagem</button>
+          </form>
+        </Card>
+      ) : null}
       <Gamification data={data} personId={person.id} />
       <Card>
         <div className="cx-card-heading">

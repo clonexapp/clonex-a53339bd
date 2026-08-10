@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { AppData, Role } from "@/domain/types";
 import { localAppRepository } from "@/repositories/local-app-repository";
@@ -7,6 +7,7 @@ import { AppDataContext, type AppDataContextValue } from "@/state/app-data-conte
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<AppData | null>(null);
+  const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
 
   useEffect(() => {
     void localAppRepository.load().then(setData);
@@ -21,11 +22,18 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     });
   }
 
-  function actorFor(role: Role): { actorName: string; actorId?: string } {
-    if (role === "lider") return { actorName: "Matheus Gasparetto" };
-    if (role === "subleader") return { actorName: "Marina Alves", actorId: "p6" };
-    return { actorName: "Rafael Diniz", actorId: "p1" };
-  }
+  const actorFor = useCallback(
+    (role: Role): { actorName: string; actorId?: string } => {
+      const account = data?.accounts.find(
+        (item) => item.id === activeAccountId && item.role === role,
+      );
+      return {
+        actorName: account?.name ?? "Conta demonstrativa",
+        ...(account?.personId ? { actorId: account.personId } : {}),
+      };
+    },
+    [data?.accounts, activeAccountId],
+  );
 
   function nextMonth(dateValue: string): string {
     const [year = 2026, month = 1, day = 1] = dateValue.split("-").map(Number);
@@ -36,8 +44,19 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AppDataContextValue>(
     () => ({
       data,
+      activeAccount: data?.accounts.find((account) => account.id === activeAccountId) ?? null,
+      selectAccount: setActiveAccountId,
       addCapture(input) {
         update((current) => {
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          const personId = account?.personId;
+          const person = current.people.find((item) => item.id === personId);
+          if (
+            !personId ||
+            !person ||
+            !current.consentDeclarations.some((item) => item.personId === personId)
+          )
+            return current;
           const id = crypto.randomUUID();
           const occurredAt = new Date().toISOString();
           return {
@@ -45,7 +64,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             captures: [
               {
                 id,
-                personId: "p1",
+                personId,
                 status: "pendente",
                 recordedAt: occurredAt,
                 ...input,
@@ -58,15 +77,15 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 entity: "capture",
                 entityId: id,
                 action: "capture.created",
-                actorId: "p1",
-                actorName: "Rafael Diniz",
+                actorId: personId,
+                actorName: person.name,
                 actorRole: "membro",
                 occurredAt,
                 details: `Registrou ${input.minutes} minutos de ${input.activity}.`,
                 category: "captura",
-                team: "JF-1",
+                team: person.team,
                 targetRole: "membro",
-                targetPersonId: "p1",
+                targetPersonId: personId,
               },
               ...current.auditEvents,
             ],
@@ -79,20 +98,50 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           const occurredAt = new Date().toISOString();
           const batchId = crypto.randomUUID();
           const quantity = Math.min(50, Math.max(1, input.quantity));
-          const created = Array.from({ length: quantity }, (_, index) => ({
-            id: crypto.randomUUID(),
-            type: input.type,
-            model: input.model,
-            owner: input.owner,
-            status: "disponivel" as const,
-            color: input.color,
-            batchId,
-            assetCode: `CX-${String(current.equipment.length + index + 1).padStart(4, "0")}`,
-            ...(input.size ? { size: input.size } : {}),
-          }));
+          const activeAccount = current.accounts.find((item) => item.id === activeAccountId);
+          const firstNumber =
+            input.firstDeviceNumber ??
+            Math.max(0, ...current.equipment.map((item) => item.deviceNumber ?? 0)) + 1;
+          const created = Array.from({ length: quantity }, (_, index) => {
+            const allocation = input.allocations?.[index];
+            const isClonexPhone = input.type === "celular" && input.owner === "clonex";
+            const deviceNumber = isClonexPhone ? firstNumber + index : undefined;
+            return {
+              id: crypto.randomUUID(),
+              type: input.type,
+              model: input.model,
+              owner: input.owner,
+              status: allocation?.personId ? ("em_uso" as const) : ("disponivel" as const),
+              ...(allocation?.personId ? { assignedTo: allocation.personId } : {}),
+              color: input.color,
+              batchId,
+              assetCode: `CX-${String(current.equipment.length + index + 1).padStart(4, "0")}`,
+              ...((input.teamId ?? activeAccount?.teamId)
+                ? { teamId: input.teamId ?? activeAccount?.teamId }
+                : {}),
+              ...(deviceNumber ? { deviceNumber } : {}),
+              ...(isClonexPhone ? { deviceEmail: `clonex.cel.${deviceNumber}@gmail.com` } : {}),
+              ...(input.size ? { size: input.size } : {}),
+            };
+          });
+          const assignments = created.flatMap((item, index) =>
+            item.assignedTo
+              ? [
+                  {
+                    id: crypto.randomUUID(),
+                    equipmentId: item.id,
+                    personId: item.assignedTo,
+                    workload: input.allocations?.[index]?.workload ?? ("full_time" as const),
+                    startsAt: occurredAt.slice(0, 10),
+                    active: true,
+                  },
+                ]
+              : [],
+          );
           return {
             ...current,
             equipment: [...current.equipment, ...created],
+            equipmentAssignments: [...current.equipmentAssignments, ...assignments],
             auditEvents: [
               {
                 id: crypto.randomUUID(),
@@ -138,6 +187,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       },
       addPerson(input, actorRole) {
         update((current) => {
+          if (
+            current.accounts.some(
+              (account) => account.email.toLowerCase() === input.email.trim().toLowerCase(),
+            )
+          )
+            return current;
           const id = crypto.randomUUID();
           const cycleId = crypto.randomUUID();
           const actor = actorFor(actorRole);
@@ -171,6 +226,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 hourlyRate: input.hourlyRate,
                 serviceName: input.serviceName,
                 minuteCode: input.minuteCode,
+                weekendAvailability: input.weekendAvailability,
                 ...(input.supervisorId ? { supervisorId: input.supervisorId } : {}),
               },
             ],
@@ -184,6 +240,19 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 goalHours: input.goalHours,
                 targetDaysPerWeek: input.targetDaysPerWeek,
                 status: "ativo",
+              },
+            ],
+            accounts: [
+              ...current.accounts,
+              {
+                id: crypto.randomUUID(),
+                name: input.name,
+                email: input.email,
+                role: "membro",
+                status: "pendente",
+                personId: id,
+                teamId: current.teams.find((team) => team.name === input.team)?.id,
+                createdAt: occurredAt,
               },
             ],
             equipmentAssignments: [...current.equipmentAssignments, ...assignments],
@@ -394,13 +463,32 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           const actor = actorFor(actorRole);
           const occurredAt = new Date().toISOString();
           const capture = current.captures.find((item) => item.id === id);
+          const nextCaptures = current.captures.map((item) =>
+            item.id === id
+              ? { ...item, status, reviewedAt: occurredAt, reviewedBy: actor.actorName }
+              : item,
+          );
+          const approvedMinutes = capture
+            ? nextCaptures
+                .filter((item) => item.personId === capture.personId && item.status === "aprovado")
+                .reduce((sum, item) => sum + item.minutes, 0)
+            : 0;
+          const needsTriage = Boolean(
+            capture &&
+            status === "aprovado" &&
+            approvedMinutes >= 600 &&
+            !current.memberTriages.some((item) => item.personId === capture.personId),
+          );
           return {
             ...current,
-            captures: current.captures.map((item) =>
-              item.id === id
-                ? { ...item, status, reviewedAt: occurredAt, reviewedBy: actor.actorName }
-                : item,
-            ),
+            captures: nextCaptures,
+            memberTriages:
+              needsTriage && capture
+                ? [
+                    { id: crypto.randomUUID(), personId: capture.personId, status: "pendente" },
+                    ...current.memberTriages,
+                  ]
+                : current.memberTriages,
             auditEvents: capture
               ? [
                   {
@@ -452,6 +540,355 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           };
         });
       },
+      requestCaptureChange(input) {
+        update((current) => {
+          if (
+            current.captureChangeRequests.some(
+              (item) => item.captureId === input.captureId && item.status === "pendente",
+            )
+          )
+            return current;
+          const capture = current.captures.find((item) => item.id === input.captureId);
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          if (
+            !capture ||
+            !account?.personId ||
+            capture.personId !== account.personId ||
+            !input.reason.trim()
+          )
+            return current;
+          const occurredAt = new Date().toISOString();
+          const id = crypto.randomUUID();
+          return {
+            ...current,
+            captureChangeRequests: [
+              {
+                id,
+                captureId: input.captureId,
+                type: input.type,
+                reason: input.reason.trim(),
+                requestedBy: account.personId,
+                requestedAt: occurredAt,
+                status: "pendente",
+                original: {
+                  activity: capture.activity,
+                  minutes: capture.minutes,
+                  equipmentId: capture.equipmentId,
+                  recordedAt: capture.recordedAt,
+                },
+                ...(input.proposed ? { proposed: input.proposed } : {}),
+              },
+              ...current.captureChangeRequests,
+            ],
+            notices: [
+              {
+                id: crypto.randomUUID(),
+                role: "subleader",
+                message: `${account.name} solicitou ${input.type} de uma captura.`,
+                createdAt: "Agora",
+                read: false,
+              },
+              ...current.notices,
+            ],
+            auditEvents: [
+              {
+                id: crypto.randomUUID(),
+                entity: "capture",
+                entityId: input.captureId,
+                action: "capture.change_requested",
+                actorId: account.personId,
+                actorName: account.name,
+                actorRole: "membro",
+                occurredAt,
+                details: `Solicitou ${input.type}: ${input.reason.trim()}`,
+                category: "captura",
+                team: current.people.find((person) => person.id === account.personId)?.team,
+                targetRole: "membro",
+                targetPersonId: account.personId,
+              },
+              ...current.auditEvents,
+            ],
+          };
+        });
+      },
+      withdrawCaptureChange(id) {
+        update((current) => {
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          const request = current.captureChangeRequests.find((item) => item.id === id);
+          if (
+            !request ||
+            request.status !== "pendente" ||
+            request.requestedBy !== account?.personId
+          )
+            return current;
+          return {
+            ...current,
+            captureChangeRequests: current.captureChangeRequests.map((item) =>
+              item.id === id
+                ? {
+                    ...item,
+                    status: "retirada" as const,
+                    resolvedAt: new Date().toISOString(),
+                    resolvedBy: account.name,
+                  }
+                : item,
+            ),
+          };
+        });
+      },
+      resolveCaptureChange(id, approved, note) {
+        update((current) => {
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          const request = current.captureChangeRequests.find((item) => item.id === id);
+          const capture = request && current.captures.find((item) => item.id === request.captureId);
+          if (
+            !account ||
+            account.role !== "subleader" ||
+            !request ||
+            request.status !== "pendente" ||
+            !capture
+          )
+            return current;
+          const occurredAt = new Date().toISOString();
+          return {
+            ...current,
+            captures: current.captures.map((item) =>
+              item.id !== capture.id || !approved
+                ? item
+                : request.type === "cancelamento"
+                  ? {
+                      ...item,
+                      status: "cancelado" as const,
+                      reviewedAt: occurredAt,
+                      reviewedBy: account.name,
+                    }
+                  : { ...item, ...request.proposed },
+            ),
+            captureChangeRequests: current.captureChangeRequests.map((item) =>
+              item.id === id
+                ? {
+                    ...item,
+                    status: approved ? ("aprovada" as const) : ("rejeitada" as const),
+                    resolvedAt: occurredAt,
+                    resolvedBy: account.name,
+                    ...(note ? { resolutionNote: note } : {}),
+                  }
+                : item,
+            ),
+            auditEvents: [
+              {
+                id: crypto.randomUUID(),
+                entity: "capture",
+                entityId: capture.id,
+                action: approved ? "capture.change_approved" : "capture.change_rejected",
+                ...(account.personId ? { actorId: account.personId } : {}),
+                actorName: account.name,
+                actorRole: account.role,
+                occurredAt,
+                details: `${approved ? "Aprovou" : "Rejeitou"} a solicitação de ${request.type}.${note ? ` ${note}` : ""}`,
+                category: "captura",
+                team: current.people.find((person) => person.id === capture.personId)?.team,
+                targetRole: "membro",
+                targetPersonId: capture.personId,
+              },
+              ...current.auditEvents,
+            ],
+          };
+        });
+      },
+      declareConsent(personId) {
+        update((current) => {
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          if (
+            !account ||
+            account.personId !== personId ||
+            current.consentDeclarations.some((item) => item.personId === personId)
+          )
+            return current;
+          const occurredAt = new Date().toISOString();
+          return {
+            ...current,
+            consentDeclarations: [
+              {
+                id: crypto.randomUUID(),
+                personId,
+                declaredAt: occurredAt,
+                declaredBy: account.name,
+              },
+              ...current.consentDeclarations,
+            ],
+            auditEvents: [
+              {
+                id: crypto.randomUUID(),
+                entity: "consent",
+                entityId: personId,
+                action: "consent.declared",
+                actorId: personId,
+                actorName: account.name,
+                actorRole: "membro",
+                occurredAt,
+                details: "Declarou que assinou o termo. Aguarda validação do Sublíder.",
+                category: "consentimento",
+                team: current.people.find((person) => person.id === personId)?.team,
+                targetRole: "membro",
+                targetPersonId: personId,
+              },
+              ...current.auditEvents,
+            ],
+          };
+        });
+      },
+      confirmEquipment(personId, assetCode) {
+        let confirmed = false;
+        update((current) => {
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          const equipment = current.equipment.find(
+            (item) =>
+              item.assetCode.toLowerCase() === assetCode.trim().toLowerCase() &&
+              item.assignedTo === personId,
+          );
+          if (!equipment || account?.personId !== personId) return current;
+          confirmed = true;
+          const occurredAt = new Date().toISOString();
+          return {
+            ...current,
+            equipmentAssignments: current.equipmentAssignments.map((item) =>
+              item.equipmentId === equipment.id && item.personId === personId && item.active
+                ? { ...item, confirmedAt: occurredAt, confirmedBy: account.name }
+                : item,
+            ),
+          };
+        });
+        return confirmed;
+      },
+      completeTriage(id, decision, notes) {
+        update((current) => {
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          if (!account || account.role === "membro") return current;
+          return {
+            ...current,
+            memberTriages: current.memberTriages.map((item) =>
+              item.id === id
+                ? {
+                    ...item,
+                    status: "concluida" as const,
+                    decision,
+                    notes,
+                    completedAt: new Date().toISOString(),
+                    completedBy: account.name,
+                  }
+                : item,
+            ),
+          };
+        });
+      },
+      saveWeeklyForecast(input) {
+        update((current) => {
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          if (!account || account.role === "membro") return current;
+          const occurredAt = new Date().toISOString();
+          const existing = current.weeklyForecasts.find(
+            (item) => item.teamId === input.teamId && item.weekStartsAt === input.weekStartsAt,
+          );
+          const record = {
+            id: existing?.id ?? crypto.randomUUID(),
+            ...input,
+            expectedPeople: Math.max(0, input.expectedPeople),
+            expectedHours: Math.max(0, input.expectedHours),
+            updatedAt: occurredAt,
+            updatedBy: account.name,
+          };
+          return {
+            ...current,
+            weeklyForecasts: [
+              record,
+              ...current.weeklyForecasts.filter((item) => item.id !== existing?.id),
+            ],
+          };
+        });
+      },
+      saveSupervisor(input) {
+        update((current) => {
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          if (
+            account?.role !== "lider" ||
+            current.accounts.some(
+              (item) =>
+                item.email.toLowerCase() === input.email.toLowerCase() &&
+                item.id !== input.accountId,
+            )
+          )
+            return current;
+          const team = current.teams.find((item) => item.id === input.teamId);
+          if (!team) return current;
+          const personId = input.personId ?? crypto.randomUUID();
+          const accountId = input.accountId ?? crypto.randomUUID();
+          const occurredAt = new Date().toISOString();
+          const person = {
+            id: personId,
+            name: input.name,
+            role: "subleader" as const,
+            team: team.name,
+            city: team.city,
+            goalHours: 0,
+            targetDaysPerWeek: 5,
+            active: input.status !== "desativada",
+            email: input.email,
+            phone: "",
+            affiliation: "autonomo" as const,
+            workload: "full_time" as const,
+            hourlyRate: 0,
+            serviceName: `Gestão da ${team.name}`,
+            minuteCode: `SUB-${input.name.toUpperCase().replace(/[^A-Z0-9]/g, "-")}`,
+            weekendAvailability: "ambos" as const,
+          };
+          return {
+            ...current,
+            people: input.personId
+              ? current.people.map((item) => (item.id === personId ? { ...item, ...person } : item))
+              : [...current.people, person],
+            accounts: input.accountId
+              ? current.accounts.map((item) =>
+                  item.id === accountId
+                    ? {
+                        ...item,
+                        name: input.name,
+                        email: input.email,
+                        status: input.status,
+                        teamId: team.id,
+                        personId,
+                      }
+                    : item,
+                )
+              : [
+                  ...current.accounts,
+                  {
+                    id: accountId,
+                    name: input.name,
+                    email: input.email,
+                    role: "subleader",
+                    status: input.status,
+                    teamId: team.id,
+                    personId,
+                    createdAt: occurredAt,
+                  },
+                ],
+            teams: current.teams.map((item) =>
+              item.id === team.id
+                ? { ...item, supervisorId: input.status === "desativada" ? undefined : personId }
+                : item,
+            ),
+          };
+        });
+      },
+      updateWeekendAvailability(personId, weekendAvailability) {
+        update((current) => ({
+          ...current,
+          people: current.people.map((item) =>
+            item.id === personId ? { ...item, weekendAvailability } : item,
+          ),
+        }));
+      },
       markNoticesRead(role) {
         update((current) => ({
           ...current,
@@ -500,7 +937,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         setData(await localAppRepository.reset());
       },
     }),
-    [data],
+    [data, activeAccountId, actorFor],
   );
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;
