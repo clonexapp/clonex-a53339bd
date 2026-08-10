@@ -2,8 +2,9 @@ import { seedData } from "@/data/seed";
 import type { AccessAccount, AppData, Person } from "@/domain/types";
 import type { AppRepository } from "@/repositories/app-repository";
 
-const STORAGE_KEY = "clonex:app-data:v5";
+const STORAGE_KEY = "clonex:app-data:v6";
 const PREVIOUS_KEYS = [
+  "clonex:app-data:v5",
   "clonex:app-data:v4",
   "clonex:app-data:v3",
   "clonex:app-data:v2",
@@ -11,7 +12,33 @@ const PREVIOUS_KEYS = [
 ];
 
 function cloneSeed(): AppData {
-  return structuredClone(seedData);
+  const data = structuredClone(seedData);
+  data.people = data.people.map((person, index) => ({
+    ...person,
+    region: person.region ?? "Sudeste",
+    state: person.state ?? "MG",
+    memberCode:
+      person.memberCode ??
+      `${person.role === "membro" ? "MG-JDF" : "SUB-MG"}-${String(index + 1).padStart(4, "0")}`,
+  }));
+  data.teams = data.teams.map((team) => ({
+    ...team,
+    region: team.region ?? "Sudeste",
+    state: team.state ?? "MG",
+  }));
+  data.people = data.people.map((person) => ({
+    ...person,
+    ...(() => {
+      const teamId = person.teamId ?? data.teams.find((team) => team.name === person.team)?.id;
+      return teamId ? { teamId } : {};
+    })(),
+  }));
+  data.companies = data.companies.map((company) => ({
+    ...company,
+    region: company.region ?? "Sudeste",
+    state: company.state ?? "MG",
+  }));
+  return data;
 }
 
 function migratedTeam(name: string) {
@@ -23,11 +50,13 @@ function migratedTeam(name: string) {
 function normalizeData(value: Partial<AppData>): AppData {
   const fallback = cloneSeed();
   const sourcePeople = value.people ?? fallback.people;
-  const people: Person[] = sourcePeople.map((person) => {
+  const people: Person[] = sourcePeople.map((person, index) => {
     const team = migratedTeam(person.team);
     return {
       ...person,
       team,
+      region: person.region ?? "Sudeste",
+      state: person.state ?? "MG",
       targetDaysPerWeek: person.targetDaysPerWeek ?? 5,
       email: person.email ?? "",
       phone: person.phone ?? "",
@@ -39,6 +68,9 @@ function normalizeData(value: Partial<AppData>): AppData {
         person.supervisorId ??
         (person.role === "membro" ? (team === "Equipe Pedro" ? "p6" : "p7") : undefined),
       minuteCode: person.minuteCode ?? `MIN-${person.id.toUpperCase()}`,
+      memberCode:
+        person.memberCode ??
+        `${person.role === "membro" ? "MG-JDF" : "SUB-MG"}-${String(index + 1).padStart(4, "0")}`,
       weekendAvailability: person.weekendAvailability ?? "nenhum",
     };
   });
@@ -48,7 +80,11 @@ function normalizeData(value: Partial<AppData>): AppData {
     else people.push(supervisor);
   }
 
-  const teams = fallback.teams.map((team) => {
+  const teamSources = [...fallback.teams];
+  for (const storedTeam of value.teams ?? []) {
+    if (!teamSources.some((team) => team.id === storedTeam.id)) teamSources.push(storedTeam);
+  }
+  const teams = teamSources.map((team) => {
     const stored = value.teams?.find(
       (item) => item.id === team.id || migratedTeam(item.name) === team.name,
     );
@@ -56,9 +92,15 @@ function normalizeData(value: Partial<AppData>): AppData {
       ...team,
       ...stored,
       name: team.name,
+      region: stored?.region ?? team.region ?? "Sudeste",
+      state: stored?.state ?? team.state ?? "MG",
       supervisorId: stored?.supervisorId ?? team.supervisorId,
     };
   });
+  for (const person of people) {
+    const teamId = person.teamId ?? teams.find((team) => team.name === person.team)?.id;
+    if (teamId) person.teamId = teamId;
+  }
 
   const baseAccounts = value.accounts ?? [];
   const accounts: AccessAccount[] = fallback.accounts.map((account) => {
@@ -67,6 +109,11 @@ function normalizeData(value: Partial<AppData>): AppData {
     );
     return { ...account, ...existing, email: account.email };
   });
+  for (const account of baseAccounts) {
+    if (!accounts.some((item) => item.email.toLowerCase() === account.email.toLowerCase())) {
+      accounts.push(account);
+    }
+  }
   for (const person of people.filter((item) => item.role === "membro")) {
     if (
       !person.email ||
@@ -100,7 +147,9 @@ function normalizeData(value: Partial<AppData>): AppData {
       ...item,
       color: item.color ?? (item.type === "capacete" ? "Roxo" : "Preto"),
       batchId: item.batchId ?? `migrated-batch-${item.id}`,
-      assetCode: item.assetCode ?? `CX-${String(index + 1).padStart(4, "0")}`,
+      assetCode: isClonexPhone
+        ? (item.deviceEmail ?? item.assetCode ?? `clonex.cel.${deviceNumber}@gmail.com`)
+        : "",
       teamId,
       deviceNumber,
       deviceEmail: isClonexPhone
@@ -131,7 +180,11 @@ function normalizeData(value: Partial<AppData>): AppData {
     people,
     accounts,
     teams,
-    companies: value.companies ?? fallback.companies,
+    companies: (value.companies ?? fallback.companies).map((company) => ({
+      ...company,
+      region: company.region ?? "Sudeste",
+      state: company.state ?? "MG",
+    })),
     cycles: value.cycles ?? fallback.cycles,
     captures: value.captures ?? fallback.captures,
     captureChangeRequests: (value.captureChangeRequests ?? []).flatMap((request) => {

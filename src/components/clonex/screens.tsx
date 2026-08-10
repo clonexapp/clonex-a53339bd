@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronUp, Clock3, Plus, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, ChevronUp, Clock3, Plus, X } from "lucide-react";
 import { useState } from "react";
 
 import type { AppData, MetricSource, Role } from "@/domain/types";
@@ -21,6 +21,7 @@ interface ScreenProps {
   onAddPayment?(): void;
   onOpenSource(source: MetricSource): void;
   onOpenCapture(id: string): void;
+  onOpenEquipment(id: string): void;
   currentPersonId?: string;
   currentTeam?: string;
 }
@@ -116,7 +117,7 @@ export function OverviewScreen({
     <div className="cx-page-stack">
       <PageHeading
         eyebrow={
-          role === "lider" ? "Visão geral da cidade" : `Operação ${currentTeam ?? "da equipe"}`
+          role === "lider" ? "Visão geral nacional" : `Operação ${currentTeam ?? "da equipe"}`
         }
         title={role === "lider" ? "Controle da operação" : "Sua equipe hoje"}
         description="Indicadores atualizados a partir dos registros da equipe."
@@ -157,7 +158,9 @@ export function OverviewScreen({
           goalHours={data.people
             .filter(
               (person) =>
-                person.role === "membro" && (role === "lider" || person.team === currentTeam),
+                person.role === "membro" &&
+                !person.archivedAt &&
+                (role === "lider" || person.team === currentTeam),
             )
             .reduce(
               (sum, person) =>
@@ -182,7 +185,7 @@ export function OverviewScreen({
             .map((item) => item.name)
             .map((team) => {
               const people = data.people.filter(
-                (person) => person.team === team && person.role === "membro",
+                (person) => person.team === team && person.role === "membro" && !person.archivedAt,
               );
               const ids = new Set(people.map((person) => person.id));
               const minutes = data.captures
@@ -268,68 +271,56 @@ export function CapturesScreen({
           ) : undefined
         }
       />
-      <Card className="cx-table-card">
-        <div className="cx-table-wrap">
-          <table className="cx-table">
-            <thead>
-              <tr>
-                <th>Pessoa</th>
-                <th>Atividade</th>
-                <th>Duração</th>
-                <th>Data</th>
-                <th>Status</th>
-                {role !== "membro" && <th>Ações</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {captures.map((capture) => {
-                const person = data.people.find((item) => item.id === capture.personId);
-                return (
-                  <tr
-                    key={capture.id}
-                    className="cx-clickable-row"
+      <Card className="cx-capture-list-card">
+        {captures.length ? (
+          <div className="cx-capture-list">
+            {captures.map((capture) => {
+              const person = data.people.find((item) => item.id === capture.personId);
+              return (
+                <article key={capture.id}>
+                  <button
+                    className="cx-capture-list-main"
                     onClick={() => onOpenCapture(capture.id)}
+                    aria-label={`Ver detalhes da captura ${capture.activity}`}
                   >
-                    <td>
-                      <strong>{person?.name ?? "Pessoa removida"}</strong>
-                      <small>{person?.team}</small>
-                    </td>
-                    <td>{capture.activity}</td>
-                    <td>{formatHours(capture.minutes)}</td>
-                    <td>{formatDate(capture.recordedAt)}</td>
-                    <td>
-                      <StatusBadge status={capture.status} />
-                    </td>
-                    {role !== "membro" && (
-                      <td>
-                        <div className="cx-row-actions">
-                          <button
-                            aria-label="Aprovar captura"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              updateCaptureStatus(capture.id, "aprovado", role);
-                            }}
-                          >
-                            <Check size={16} />
-                          </button>
-                          <button
-                            aria-label="Reprovar captura"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              updateCaptureStatus(capture.id, "reprovado", role);
-                            }}
-                          >
-                            <X size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                    <span className="cx-capture-list-icon">
+                      <Clock3 size={19} />
+                    </span>
+                    <span className="cx-capture-list-copy">
+                      <strong>{capture.activity}</strong>
+                      <small>
+                        {person?.name ?? "Pessoa removida"} · {person?.team ?? "Sem equipe"}
+                      </small>
+                      <em>
+                        {formatDate(capture.recordedAt)} · {formatHours(capture.minutes)}
+                      </em>
+                    </span>
+                    <StatusBadge status={capture.status} />
+                    <ChevronRight className="cx-capture-list-chevron" size={19} />
+                  </button>
+                  {role !== "membro" ? (
+                    <div className="cx-capture-list-actions" aria-label="Ações de revisão">
+                      <button
+                        aria-label={`Aprovar captura de ${person?.name ?? "pessoa removida"}`}
+                        onClick={() => updateCaptureStatus(capture.id, "aprovado", role)}
+                      >
+                        <Check size={16} /> Aprovar
+                      </button>
+                      <button
+                        aria-label={`Reprovar captura de ${person?.name ?? "pessoa removida"}`}
+                        onClick={() => updateCaptureStatus(capture.id, "reprovado", role)}
+                      >
+                        <X size={16} /> Reprovar
+                      </button>
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyState>Nenhuma captura registrada neste escopo.</EmptyState>
+        )}
       </Card>
     </div>
   );
@@ -337,7 +328,7 @@ export function CapturesScreen({
 
 export function PeopleScreen({ data, role }: ScreenProps) {
   const { updatePersonGoal } = useAppData();
-  const members = data.people.filter((person) => person.role === "membro");
+  const members = data.people.filter((person) => person.role === "membro" && !person.archivedAt);
   return (
     <div className="cx-page-stack">
       <PageHeading
@@ -405,6 +396,7 @@ export function EquipmentScreen({
   data,
   role,
   onAddEquipment,
+  onOpenEquipment,
   currentPersonId,
   currentTeam,
 }: ScreenProps) {
@@ -504,40 +496,48 @@ export function EquipmentScreen({
           const company = data.companies.find((candidate) => candidate.id === person?.companyId);
           return (
             <Card key={item.id} className="cx-equipment-card">
-              <div className="cx-equipment-icon">
-                <img
-                  src={
-                    item.type === "capacete"
-                      ? "/images/clonex-helmet-3d.png"
-                      : "/images/clonex-phone-3d.png"
-                  }
-                  alt={item.type === "capacete" ? "Capacete 3D" : "Celular 3D"}
-                  loading="lazy"
-                />
-              </div>
-              <div>
-                <span className="cx-eyebrow">{item.type}</span>
-                <h2>{item.model}</h2>
-                <p>
-                  {item.assetCode} · {item.color}
-                  {item.size ? ` · tamanho ${item.size}` : ""}
-                </p>
-                {item.deviceEmail ? <p className="cx-device-email">{item.deviceEmail}</p> : null}
-                <p>
-                  {person
-                    ? `Com ${person.name}`
-                    : item.owner === "clonex"
-                      ? "Patrimônio Clonex"
-                      : "Equipamento próprio"}
-                </p>
-                {assignment ? (
-                  <small className={`cx-equipment-allocation is-${assignment.workload}`}>
-                    {assignment.workload === "full_time" ? "Full time" : "Part time"}
-                    {company ? ` · ${company.name}` : ""}
-                  </small>
-                ) : null}
-              </div>
-              <StatusBadge status={item.status} />
+              <button
+                className="cx-equipment-open"
+                onClick={() => onOpenEquipment(item.id)}
+                aria-label={`Abrir detalhes de ${item.model}`}
+              >
+                <div className="cx-equipment-icon">
+                  <img
+                    src={
+                      item.type === "capacete"
+                        ? "/images/clonex-helmet-3d.png"
+                        : "/images/clonex-phone-3d.png"
+                    }
+                    alt={item.type === "capacete" ? "Capacete 3D" : "Celular 3D"}
+                    loading="eager"
+                  />
+                </div>
+                <div>
+                  <span className="cx-eyebrow">{item.type}</span>
+                  <h2>{item.model}</h2>
+                  <p>
+                    {item.color}
+                    {item.size ? ` · tamanho ${item.size}` : ""}
+                  </p>
+                  {item.type === "celular" && item.owner === "clonex" && item.deviceEmail ? (
+                    <p className="cx-device-email">{item.deviceEmail}</p>
+                  ) : null}
+                  <p>
+                    {person
+                      ? `Com ${person.name}`
+                      : item.owner === "clonex"
+                        ? "Patrimônio Clonex"
+                        : "Equipamento próprio"}
+                  </p>
+                  {assignment ? (
+                    <small className={`cx-equipment-allocation is-${assignment.workload}`}>
+                      {assignment.workload === "full_time" ? "Full time" : "Part time"}
+                      {company ? ` · ${company.name}` : ""}
+                    </small>
+                  ) : null}
+                </div>
+                <StatusBadge status={item.status} />
+              </button>
             </Card>
           );
         })}

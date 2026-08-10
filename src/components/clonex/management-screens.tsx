@@ -14,9 +14,19 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
-import type { AppData, AuditCategory, Capture, Role } from "@/domain/types";
+import type {
+  AccessAccount,
+  AppData,
+  AuditCategory,
+  Capture,
+  Equipment,
+  GeographicRegion,
+  Role,
+} from "@/domain/types";
 import { formatDate, formatHours, formatMoney } from "@/lib/formatters";
+import { BRAZIL_STATES, GEOGRAPHIC_REGIONS, regionForState } from "@/lib/locations";
 import {
   approvedMinutes,
   buildGamification,
@@ -83,8 +93,7 @@ export function ActivitiesScreen({
   const [period, setPeriod] = useState("30");
   const [targetRole, setTargetRole] = useState("all");
   const [situation, setSituation] = useState("all");
-  const activeTeam = data.teams.find((item) => item.id === activeAccount?.teamId)?.name;
-  const members = membersForRole(data, role, activeTeam);
+  const members = membersForRole(data, role, activeAccount?.teamId);
   const ids = new Set(members.map((item) => item.id));
   const actions = buildOperationalActions(data, members).filter(
     (item) =>
@@ -227,11 +236,7 @@ export function InsightsScreen({
   onOpenPerson(id: string): void;
 }) {
   const { activeAccount } = useAppData();
-  const members = membersForRole(
-    data,
-    "subleader",
-    data.teams.find((item) => item.id === activeAccount?.teamId)?.name,
-  );
+  const members = membersForRole(data, "subleader", activeAccount?.teamId);
   const actions = buildOperationalActions(data, members);
   const approved = members.reduce((sum, person) => sum + approvedMinutes(data, person.id), 0);
   const projected = members.reduce(
@@ -295,7 +300,7 @@ export function LeaderOverview({
   data: AppData;
   onOpenTeam(team: string): void;
 }) {
-  const members = data.people.filter((person) => person.role === "membro");
+  const members = data.people.filter((person) => person.role === "membro" && !person.archivedAt);
   const approved = members.reduce((sum, person) => sum + approvedMinutes(data, person.id), 0);
   const projection = members.reduce(
     (sum, person) => sum + memberProjection(data, person).projection,
@@ -313,9 +318,9 @@ export function LeaderOverview({
     <div className="cx-page-stack">
       <div className="cx-page-heading">
         <div>
-          <span className="cx-eyebrow">Visão geral da cidade</span>
+          <span className="cx-eyebrow">Visão geral nacional</span>
           <h1>Controle da operação</h1>
-          <p>Consolidado gerencial e desempenho de cada Sublíder.</p>
+          <p>Consolidado por região, estado, cidade, equipe e Sublíder.</p>
         </div>
       </div>
       <div className="cx-stats-grid cx-leader-kpis">
@@ -406,6 +411,182 @@ export function LeaderOverview({
   );
 }
 
+function SupervisorAccountDialog({
+  account,
+  data,
+  onClose,
+}: {
+  account?: AccessAccount;
+  data: AppData;
+  onClose(): void;
+}) {
+  const { saveSupervisor } = useAppData();
+  const accountTeam = data.teams.find((team) => team.id === account?.teamId);
+  const [teamChoice, setTeamChoice] = useState(accountTeam?.id ?? "__new__");
+  const [state, setState] = useState(accountTeam?.state ?? "MG");
+  const [region, setRegion] = useState<GeographicRegion>(
+    accountTeam?.region ?? regionForState(accountTeam?.state ?? "MG"),
+  );
+  const [city, setCity] = useState(accountTeam?.city ?? "Juiz de Fora");
+  const isNewTeam = teamChoice === "__new__";
+
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [onClose]);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      className="cx-dialog-backdrop cx-supervisor-account-backdrop"
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+    >
+      <section
+        className="cx-dialog cx-operation-dialog cx-supervisor-account-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={account ? "Editar Sublíder" : "Novo Sublíder"}
+      >
+        <button className="cx-dialog-close" onClick={onClose} aria-label="Fechar">
+          ×
+        </button>
+        <span className="cx-eyebrow">Conta operacional</span>
+        <h2>{account ? "Editar Sublíder" : "Novo Sublíder"}</h2>
+        <form
+          className="cx-operation-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const form = new FormData(event.currentTarget);
+            const email = String(form.get("email")).trim().toLowerCase();
+            const teamName = String(form.get("teamName") ?? "").trim();
+            if (
+              data.accounts.some(
+                (item) => item.id !== account?.id && item.email.toLowerCase() === email,
+              )
+            ) {
+              window.alert("Já existe uma conta com este e-mail.");
+              return;
+            }
+            if (
+              isNewTeam &&
+              data.teams.some((team) => team.name.toLowerCase() === teamName.toLowerCase())
+            ) {
+              window.alert("Já existe uma equipe com este nome.");
+              return;
+            }
+            const selectedTeam = data.teams.find((team) => team.id === teamChoice);
+            if (selectedTeam?.supervisorId && selectedTeam.supervisorId !== account?.personId) {
+              window.alert(
+                "Esta equipe já possui um Sublíder responsável. Edite a conta atual ou crie outra equipe.",
+              );
+              return;
+            }
+            saveSupervisor({
+              ...(account ? { accountId: account.id } : {}),
+              ...(account?.personId ? { personId: account.personId } : {}),
+              name: String(form.get("name")),
+              email,
+              ...(isNewTeam ? { teamName } : { teamId: teamChoice }),
+              region,
+              state,
+              city,
+              status: String(form.get("status")) as "pendente" | "ativa" | "desativada",
+            });
+            onClose();
+          }}
+        >
+          <div className="cx-form-grid">
+            <label>
+              Nome
+              <input name="name" defaultValue={account?.name} required />
+            </label>
+            <label>
+              E-mail único
+              <input name="email" type="email" defaultValue={account?.email} required />
+            </label>
+            <label>
+              Equipe
+              <select
+                value={teamChoice}
+                onChange={(event) => {
+                  const choice = event.target.value;
+                  setTeamChoice(choice);
+                  const team = data.teams.find((item) => item.id === choice);
+                  if (team) {
+                    setState(team.state ?? "MG");
+                    setRegion(team.region ?? regionForState(team.state ?? "MG"));
+                    setCity(team.city);
+                  }
+                }}
+              >
+                {data.teams.map((team) => (
+                  <option key={team.id} value={team.id}>
+                    {team.name} · {team.state ?? "MG"}
+                  </option>
+                ))}
+                <option value="__new__">+ Criar nova equipe</option>
+              </select>
+            </label>
+            {isNewTeam ? (
+              <label>
+                Nome da nova equipe
+                <input name="teamName" placeholder="Ex.: Equipe Recife" required />
+              </label>
+            ) : null}
+            <label>
+              Região
+              <select
+                value={region}
+                onChange={(event) => setRegion(event.target.value as GeographicRegion)}
+              >
+                {GEOGRAPHIC_REGIONS.map((item) => (
+                  <option key={item}>{item}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Estado
+              <select
+                value={state}
+                onChange={(event) => {
+                  setState(event.target.value);
+                  setRegion(regionForState(event.target.value));
+                }}
+              >
+                {BRAZIL_STATES.map(([code, name]) => (
+                  <option key={code} value={code}>
+                    {code} · {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Cidade
+              <input value={city} onChange={(event) => setCity(event.target.value)} required />
+            </label>
+            <label>
+              Situação da conta
+              <select name="status" defaultValue={account?.status ?? "pendente"}>
+                <option value="pendente">Pendente</option>
+                <option value="ativa">Ativa</option>
+                <option value="desativada">Desativada</option>
+              </select>
+            </label>
+          </div>
+          <p className="cx-muted">
+            Nenhuma senha é criada ou armazenada nesta etapa. O escopo de acesso fica limitado à
+            equipe escolhida.
+          </p>
+          <button className="cx-button">Salvar</button>
+        </form>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
 export function SupervisorsScreen({
   data,
   onOpenTeam,
@@ -413,9 +594,9 @@ export function SupervisorsScreen({
   data: AppData;
   onOpenTeam(team: string): void;
 }) {
-  const { saveSupervisor } = useAppData();
   const [editing, setEditing] = useState<string | null>(null);
   const supervisors = data.accounts.filter((account) => account.role === "subleader");
+  const editingAccount = data.accounts.find((account) => account.id === editing);
   return (
     <div className="cx-page-stack">
       <div className="cx-page-heading">
@@ -432,7 +613,10 @@ export function SupervisorsScreen({
         {supervisors.map((account) => {
           const team = data.teams.find((item) => item.id === account.teamId);
           const members = data.people.filter(
-            (person) => person.role === "membro" && person.team === team?.name,
+            (person) =>
+              person.role === "membro" &&
+              !person.archivedAt &&
+              (person.teamId === team?.id || person.team === team?.name),
           );
           const minutes = members.reduce(
             (sum, person) => sum + approvedMinutes(data, person.id),
@@ -451,12 +635,17 @@ export function SupervisorsScreen({
                       .slice(0, 2)
                       .join("")}
                   </span>
-                  <span>
+                  <span className="cx-supervisor-card-copy">
                     <small>
                       {account.status} · {team?.name ?? "Sem equipe"}
                     </small>
                     <strong>{account.name}</strong>
-                    <em>{account.email}</em>
+                    <em className="cx-supervisor-email">{account.email}</em>
+                    {team ? (
+                      <em>
+                        {team.region ?? "Sudeste"} · {team.state ?? "MG"} · {team.city}
+                      </em>
+                    ) : null}
                   </span>
                   <ChevronRight />
                 </div>
@@ -487,68 +676,12 @@ export function SupervisorsScreen({
         })}
       </div>
       {editing ? (
-        <div
-          className="cx-dialog-backdrop"
-          onMouseDown={(event) => event.target === event.currentTarget && setEditing(null)}
-        >
-          <section className="cx-dialog cx-operation-dialog">
-            <button className="cx-dialog-close" onClick={() => setEditing(null)}>
-              ×
-            </button>
-            <span className="cx-eyebrow">Conta operacional</span>
-            <h2>{editing === "new" ? "Novo Sublíder" : "Editar Sublíder"}</h2>
-            {(() => {
-              const account = data.accounts.find((item) => item.id === editing);
-              return (
-                <form
-                  className="cx-operation-form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    const form = new FormData(event.currentTarget);
-                    saveSupervisor({
-                      ...(account ? { accountId: account.id } : {}),
-                      ...(account?.personId ? { personId: account.personId } : {}),
-                      name: String(form.get("name")),
-                      email: String(form.get("email")),
-                      teamId: String(form.get("teamId")),
-                      status: String(form.get("status")) as "pendente" | "ativa" | "desativada",
-                    });
-                    setEditing(null);
-                  }}
-                >
-                  <label>
-                    Nome
-                    <input name="name" defaultValue={account?.name} required />
-                  </label>
-                  <label>
-                    E-mail único
-                    <input name="email" type="email" defaultValue={account?.email} required />
-                  </label>
-                  <label>
-                    Equipe
-                    <select name="teamId" defaultValue={account?.teamId}>
-                      {data.teams.map((team) => (
-                        <option key={team.id} value={team.id}>
-                          {team.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Estado
-                    <select name="status" defaultValue={account?.status ?? "pendente"}>
-                      <option value="pendente">Pendente</option>
-                      <option value="ativa">Ativa</option>
-                      <option value="desativada">Desativada</option>
-                    </select>
-                  </label>
-                  <p className="cx-muted">Nenhuma senha é criada ou armazenada nesta etapa.</p>
-                  <button className="cx-button">Salvar</button>
-                </form>
-              );
-            })()}
-          </section>
-        </div>
+        <SupervisorAccountDialog
+          key={editing}
+          {...(editingAccount ? { account: editingAccount } : {})}
+          data={data}
+          onClose={() => setEditing(null)}
+        />
       ) : null}
     </div>
   );
@@ -571,7 +704,12 @@ export function TeamPanel({
     return () => window.removeEventListener("keydown", close);
   }, [onClose]);
   const team = data.teams.find((item) => item.name === teamName);
-  const members = data.people.filter((p) => p.role === "membro" && p.team === teamName);
+  const members = data.people.filter(
+    (person) =>
+      person.role === "membro" &&
+      !person.archivedAt &&
+      (person.teamId === team?.id || person.team === teamName),
+  );
   const supervisor = data.people.find((p) => p.id === team?.supervisorId);
   const supervisorAccount = data.accounts.find(
     (account) => account.personId === supervisor?.id && account.role === "subleader",
@@ -709,6 +847,191 @@ export function Gamification({ data, personId }: { data: AppData; personId: stri
   );
 }
 
+const EQUIPMENT_GUIDELINES: Record<Equipment["type"], string[]> = {
+  capacete: [
+    "Confira ajuste, fixação e estrutura antes de iniciar a operação.",
+    "Mantenha o equipamento limpo e não opere se houver trinca ou folga.",
+    "Avise o Sublíder sobre dano, manutenção ou troca de responsável.",
+  ],
+  celular: [
+    "Mantenha bateria, armazenamento e sincronização do Minute disponíveis.",
+    "Não altere a conta operacional do aparelho sem orientação do Sublíder.",
+    "Avise imediatamente em caso de dano, perda ou falha de envio.",
+  ],
+};
+
+export function EquipmentDetailPanel({
+  data,
+  equipmentId,
+  onClose,
+  onOpenCapture,
+}: {
+  data: AppData;
+  equipmentId: string;
+  onClose(): void;
+  onOpenCapture(id: string): void;
+}) {
+  const equipment = data.equipment.find((item) => item.id === equipmentId);
+
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [onClose]);
+
+  if (!equipment) return null;
+  const assignments = data.equipmentAssignments
+    .filter((item) => item.equipmentId === equipment.id)
+    .sort((a, b) => b.startsAt.localeCompare(a.startsAt));
+  const activeAssignment = assignments.find((item) => item.active);
+  const assignedPerson = data.people.find((item) => item.id === activeAssignment?.personId);
+  const team = data.teams.find((item) => item.id === equipment.teamId);
+  const captures = data.captures
+    .filter((item) => item.equipmentId === equipment.id)
+    .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
+  const events = data.auditEvents.filter(
+    (item) =>
+      item.entity === "equipment" &&
+      (item.entityId === equipment.id || item.entityId === equipment.batchId),
+  );
+  const isClonexPhone = equipment.type === "celular" && equipment.owner === "clonex";
+
+  return (
+    <div
+      className="cx-source-layer"
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+    >
+      <section className="cx-source-panel" role="dialog" aria-modal="true">
+        <span className="cx-source-handle" />
+        <header className="cx-source-header">
+          <span className="cx-source-icon">
+            {equipment.type === "capacete" ? <HardHat /> : <Smartphone />}
+          </span>
+          <div>
+            <span className="cx-eyebrow">Detalhes do equipamento</span>
+            <h2>{equipment.model}</h2>
+          </div>
+          <button onClick={onClose} aria-label="Fechar detalhes do equipamento">
+            <X />
+          </button>
+        </header>
+        <div className="cx-source-body cx-equipment-detail-body">
+          <div className="cx-equipment-detail-hero">
+            <img
+              src={
+                equipment.type === "capacete"
+                  ? "/images/clonex-helmet-3d.png"
+                  : "/images/clonex-phone-3d.png"
+              }
+              alt={equipment.type === "capacete" ? "Capacete" : "Celular"}
+              loading="eager"
+            />
+            <div>
+              <span className="cx-eyebrow">{equipment.type}</span>
+              <strong>{equipment.color}</strong>
+              <StatusBadge status={equipment.status} />
+            </div>
+          </div>
+          <dl className="cx-source-definition">
+            {isClonexPhone ? (
+              <div>
+                <dt>E-mail/código do celular</dt>
+                <dd className="cx-break-text">{equipment.deviceEmail ?? equipment.assetCode}</dd>
+              </div>
+            ) : null}
+            <div>
+              <dt>Origem e características</dt>
+              <dd>
+                {equipment.owner === "clonex" ? "Clonex" : "Próprio"} · {equipment.color}
+                {equipment.size ? ` · tamanho ${equipment.size}` : ""}
+              </dd>
+            </div>
+            <div>
+              <dt>Equipe responsável</dt>
+              <dd>{team?.name ?? assignedPerson?.team ?? "Sem equipe definida"}</dd>
+            </div>
+            <div>
+              <dt>Uso atual</dt>
+              <dd>
+                {assignedPerson
+                  ? `${assignedPerson.name} · ${activeAssignment?.workload === "part_time" ? "Part time" : "Full time"}`
+                  : "Disponível, sem pessoa alocada"}
+              </dd>
+            </div>
+            {activeAssignment ? (
+              <div>
+                <dt>Período e confirmação</dt>
+                <dd>
+                  Desde {formatDate(activeAssignment.startsAt)} ·{" "}
+                  {activeAssignment.confirmedAt
+                    ? `recebido em ${formatDate(activeAssignment.confirmedAt)}`
+                    : "recebimento pendente"}
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+
+          <div className="cx-equipment-guidelines">
+            <span className="cx-eyebrow">Diretrizes de uso</span>
+            <ul>
+              {EQUIPMENT_GUIDELINES[equipment.type].map((guideline) => (
+                <li key={guideline}>{guideline}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="cx-equipment-usage">
+            <div className="cx-card-heading">
+              <div>
+                <span className="cx-eyebrow">Uso registrado</span>
+                <h3>{captures.length} capturas</h3>
+              </div>
+            </div>
+            {captures.length ? (
+              captures.map((capture) => {
+                const person = data.people.find((item) => item.id === capture.personId);
+                return (
+                  <button
+                    key={capture.id}
+                    onClick={() => onOpenCapture(capture.id)}
+                    className="cx-equipment-usage-row"
+                  >
+                    <span>
+                      <strong>{capture.activity}</strong>
+                      <small>
+                        {person?.name ?? "Pessoa"} · {formatDate(capture.recordedAt)}
+                      </small>
+                    </span>
+                    <span>
+                      {formatHours(capture.minutes)} <ChevronRight size={17} />
+                    </span>
+                  </button>
+                );
+              })
+            ) : (
+              <p className="cx-muted">Nenhuma captura vinculada a este equipamento.</p>
+            )}
+          </div>
+
+          {events.length ? (
+            <div className="cx-equipment-audit">
+              <span className="cx-eyebrow">Histórico operacional</span>
+              {events.map((event) => (
+                <div key={event.id}>
+                  <strong>{event.details}</strong>
+                  <small>
+                    {event.actorName} · {new Date(event.occurredAt).toLocaleString("pt-BR")}
+                  </small>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function CaptureDetailPanel({
   data,
   captureId,
@@ -773,7 +1096,9 @@ export function CaptureDetailPanel({
             <div>
               <dt>Equipamento</dt>
               <dd>
-                {equipment?.assetCode} · {equipment?.type} · {equipment?.model}
+                {equipment?.deviceEmail
+                  ? `${equipment.deviceEmail} · ${equipment.type} · ${equipment.model}`
+                  : `${equipment?.type ?? "Equipamento"} · ${equipment?.model ?? "Não identificado"}`}
               </dd>
             </div>
             <div>
@@ -875,7 +1200,8 @@ export function CaptureDetailPanel({
                       .filter((item) => item.assignedTo === capture.personId)
                       .map((item) => (
                         <option key={item.id} value={item.id}>
-                          {item.assetCode} · {item.model}
+                          {item.deviceEmail ? `${item.deviceEmail} · ` : ""}
+                          {item.model}
                         </option>
                       ))}
                   </select>

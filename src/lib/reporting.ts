@@ -28,16 +28,15 @@ function referenceDate(data: AppData) {
 }
 
 function scopePeople(data: AppData, scope: ReportScope) {
-  return data.people.filter(
-    (person) =>
-      person.role === "membro" &&
-      person.active &&
-      (scope.kind === "person"
-        ? person.id === scope.value
-        : scope.kind === "team"
-          ? person.team === scope.value
-          : person.city === scope.value),
-  );
+  return data.people.filter((person) => {
+    if (person.role !== "membro" || !person.active || person.archivedAt) return false;
+    if (scope.kind === "person") return person.id === scope.value;
+    if (scope.kind === "team") return person.teamId === scope.value || person.team === scope.value;
+    if (scope.kind === "city") return person.city === scope.value;
+    if (scope.kind === "state") return person.state === scope.value;
+    if (scope.kind === "region") return person.region === scope.value;
+    return scope.kind === "country";
+  });
 }
 
 function reportInterval(data: AppData, period: ReportPeriod) {
@@ -287,11 +286,11 @@ export function buildPendingReviewsSource(
 
 export function reportScopeFor(
   role: "subleader" | "lider",
-  teamName = "Equipe Pedro",
+  teamValue = "Equipe Pedro",
 ): ReportScope {
   return role === "subleader"
-    ? { kind: "team", value: teamName }
-    : { kind: "city", value: "Juiz de Fora" };
+    ? { kind: "team", value: teamValue }
+    : { kind: "country", value: "Brasil" };
 }
 
 export function formatReportText(

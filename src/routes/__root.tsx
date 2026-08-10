@@ -96,6 +96,21 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
     ],
     links: [
+      {
+        rel: "preload",
+        href: "/images/clonex-member-access-3d.png",
+        as: "image",
+      },
+      {
+        rel: "preload",
+        href: "/images/clonex-subleader-access-3d.png",
+        as: "image",
+      },
+      {
+        rel: "preload",
+        href: "/images/clonex-leader-access-3d.png",
+        as: "image",
+      },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {

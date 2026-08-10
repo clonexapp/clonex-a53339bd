@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 
-import type { AffiliationType, Role, WorkloadType } from "@/domain/types";
+import type { AffiliationType, GeographicRegion, Role, WorkloadType } from "@/domain/types";
 import { formatHours, formatMoney } from "@/lib/formatters";
+import { BRAZIL_STATES, GEOGRAPHIC_REGIONS, locationCode, regionForState } from "@/lib/locations";
 import { useAppData } from "@/state/use-app-data";
 
 function Modal({
@@ -46,10 +47,40 @@ function Modal({
 export function MemberRegistrationDialog({ role, onClose }: { role: Role; onClose(): void }) {
   const { data, activeAccount, addCompany, addPerson } = useAppData();
   const [affiliation, setAffiliation] = useState<AffiliationType>("autonomo");
+  const availableTeams = useMemo(
+    () => data?.teams.filter((team) => role === "lider" || team.id === activeAccount?.teamId) ?? [],
+    [activeAccount?.teamId, data?.teams, role],
+  );
+  const [teamId, setTeamId] = useState(activeAccount?.teamId ?? "");
+  const selectedTeam = availableTeams.find((team) => team.id === teamId) ?? availableTeams[0];
+  const [region, setRegion] = useState<GeographicRegion>(selectedTeam?.region ?? "Sudeste");
+  const [state, setState] = useState(selectedTeam?.state ?? "MG");
+  const [city, setCity] = useState(selectedTeam?.city ?? "Juiz de Fora");
+  useEffect(() => {
+    if (!teamId && availableTeams[0]) {
+      setTeamId(availableTeams[0].id);
+      setRegion(availableTeams[0].region ?? regionForState(availableTeams[0].state ?? "MG"));
+      setState(availableTeams[0].state ?? "MG");
+      setCity(availableTeams[0].city);
+    }
+  }, [availableTeams, teamId]);
   if (!data) return null;
+  const appData = data;
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const team = appData.teams.find((item) => item.id === String(form.get("teamId")));
+    if (!team) return;
+    const email = String(form.get("email")).trim().toLowerCase();
+    const memberCode = String(form.get("memberCode")).trim().toUpperCase();
+    if (appData.accounts.some((account) => account.email.toLowerCase() === email)) {
+      window.alert("Já existe uma conta com este e-mail.");
+      return;
+    }
+    if (appData.people.some((person) => person.memberCode?.toUpperCase() === memberCode)) {
+      window.alert("Este código de identificação já está em uso.");
+      return;
+    }
     let companyId = String(form.get("companyId") || "") || undefined;
     const newCompany = String(form.get("newCompany") || "").trim();
     if (affiliation === "empresa" && newCompany) {
@@ -58,7 +89,9 @@ export function MemberRegistrationDialog({ role, onClose }: { role: Role; onClos
       companyId = addCompany(
         {
           name: newCompany,
-          city: String(form.get("city")),
+          region,
+          state,
+          city,
           ...(cnpj ? { cnpj } : {}),
           ...(contact ? { contact } : {}),
         },
@@ -68,10 +101,14 @@ export function MemberRegistrationDialog({ role, onClose }: { role: Role; onClos
     addPerson(
       {
         name: String(form.get("name")),
-        email: String(form.get("email")),
+        email,
         phone: "",
-        team: String(form.get("team")),
-        city: String(form.get("city")),
+        team: team.name,
+        teamId: team.id,
+        region,
+        state,
+        city,
+        memberCode,
         affiliation,
         ...(affiliation === "empresa" && companyId ? { companyId } : {}),
         workload: String(form.get("workload")) as WorkloadType,
@@ -115,21 +152,66 @@ export function MemberRegistrationDialog({ role, onClose }: { role: Role; onClos
             <input name="minuteCode" placeholder="Ex.: JF1-NOME-26" required />
           </label>
           <label>
+            Código de identificação
+            <input
+              name="memberCode"
+              defaultValue={`${locationCode(state, city)}-${String(data.people.length + 1).padStart(4, "0")}`}
+              required
+            />
+          </label>
+          <label>
             Equipe
             <select
-              name="team"
-              defaultValue={data.teams.find((team) => team.id === activeAccount?.teamId)?.name}
+              name="teamId"
+              value={selectedTeam?.id ?? ""}
+              onChange={(event) => {
+                const next = availableTeams.find((item) => item.id === event.target.value);
+                setTeamId(event.target.value);
+                if (next) {
+                  setRegion(next.region ?? regionForState(next.state ?? "MG"));
+                  setState(next.state ?? "MG");
+                  setCity(next.city);
+                }
+              }}
+              required
             >
-              {data.teams
-                .filter((team) => role === "lider" || team.id === activeAccount?.teamId)
-                .map((team) => (
-                  <option key={team.id}>{team.name}</option>
-                ))}
+              {availableTeams.map((team) => (
+                <option key={team.id} value={team.id}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Região
+            <select
+              value={region}
+              onChange={(event) => setRegion(event.target.value as GeographicRegion)}
+            >
+              {GEOGRAPHIC_REGIONS.map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Estado
+            <select
+              value={state}
+              onChange={(event) => {
+                setState(event.target.value);
+                setRegion(regionForState(event.target.value));
+              }}
+            >
+              {BRAZIL_STATES.map(([code, name]) => (
+                <option key={code} value={code}>
+                  {code} · {name}
+                </option>
+              ))}
             </select>
           </label>
           <label>
             Cidade
-            <input name="city" defaultValue="Juiz de Fora" required />
+            <input value={city} onChange={(event) => setCity(event.target.value)} required />
           </label>
           <label>
             Vínculo

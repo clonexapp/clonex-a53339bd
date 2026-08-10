@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 
 import type { EquipmentType, MetricSource, Role } from "@/domain/types";
+import { buildDeviceEmailSequence, clonexDeviceNumber } from "@/lib/device-email";
 import { AppDataProvider } from "@/state/app-data-context";
 import { useAppData } from "@/state/use-app-data";
 import {
@@ -45,6 +46,7 @@ import {
   ActivitiesScreen,
   CaptureDetailPanel,
   ConsentKpis,
+  EquipmentDetailPanel,
   InsightsScreen,
   LeaderOverview,
   SupervisorsScreen,
@@ -64,6 +66,22 @@ type TabKey =
   | "activities"
   | "insights"
   | "supervisors";
+
+const OPERATION_IMAGE_PATHS = [
+  "/images/clonex-helmet-3d.png",
+  "/images/clonex-phone-3d.png",
+  "/images/clonex-company-3d.png",
+  "/images/clonex-how-it-works-3d.png",
+] as const;
+
+function warmOperationImages() {
+  if (typeof window === "undefined") return;
+  OPERATION_IMAGE_PATHS.forEach((src) => {
+    const image = new Image();
+    image.decoding = "async";
+    image.src = src;
+  });
+}
 
 interface NavItem {
   key: TabKey;
@@ -125,6 +143,7 @@ function ClonexWorkspace() {
   const [memberRegistrationOpen, setMemberRegistrationOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(null);
+  const [selectedEquipmentId, setSelectedEquipmentId] = useState<string | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
 
   useEffect(() => {
@@ -137,6 +156,7 @@ function ClonexWorkspace() {
       <AccessScreen
         data={data}
         onEnter={(accountId, nextRole) => {
+          warmOperationImages();
           selectAccount(accountId);
           setRole(nextRole);
         }}
@@ -194,6 +214,7 @@ function ClonexWorkspace() {
     },
     onAddEquipment: () => setEquipmentOpen(true),
     onOpenSource: setMetricSource,
+    onOpenEquipment: setSelectedEquipmentId,
     onOpenCapture: setSelectedCaptureId,
   };
 
@@ -280,59 +301,63 @@ function ClonexWorkspace() {
             <span>Clonex Operações</span>
             <strong>{ROLE_LABELS[role]}</strong>
           </div>
-          <div className="cx-notice-wrap">
+          <div className="cx-topbar-actions">
             <button
               className="cx-help-button"
-              onClick={() => setHowOpen(true)}
+              onClick={() => {
+                setNoticesOpen(false);
+                setHowOpen(true);
+              }}
               aria-label="Abrir Como funciona"
             >
               <HelpCircle size={18} />
               <span>Como funciona</span>
             </button>
-          </div>
-          <div className="cx-notice-wrap">
-            <button
-              className="cx-icon-button"
-              aria-label={`${unread} notificações não lidas`}
-              onClick={() => {
-                setNoticesOpen((open) => !open);
-                markNoticesRead(role);
-              }}
-            >
-              <Bell size={19} />
-              {unread > 0 && <span>{unread}</span>}
-            </button>
-            {noticesOpen && (
-              <div className="cx-notice-panel">
-                <div>
-                  <strong>Notificações</strong>
-                  <button onClick={() => setNoticesOpen(false)} aria-label="Fechar notificações">
-                    <X size={17} />
-                  </button>
+            <div className="cx-notice-wrap">
+              <button
+                className="cx-icon-button"
+                aria-label={`${unread} notificações não lidas`}
+                onClick={() => {
+                  setHowOpen(false);
+                  setNoticesOpen((open) => !open);
+                  markNoticesRead(role);
+                }}
+              >
+                <Bell size={19} />
+                {unread > 0 && <span>{unread}</span>}
+              </button>
+              {noticesOpen ? (
+                <div className="cx-notice-panel">
+                  <div>
+                    <strong>Notificações</strong>
+                    <button onClick={() => setNoticesOpen(false)} aria-label="Fechar notificações">
+                      <X size={17} />
+                    </button>
+                  </div>
+                  {notices.length ? (
+                    notices.map((notice) => (
+                      <article key={notice.id}>
+                        <p>{notice.message}</p>
+                        <span>{notice.createdAt}</span>
+                      </article>
+                    ))
+                  ) : (
+                    <p className="cx-muted">Nenhuma notificação.</p>
+                  )}
+                  {role !== "membro" ? (
+                    <button
+                      className="cx-notice-all"
+                      onClick={() => {
+                        setNoticesOpen(false);
+                        setTab("activities");
+                      }}
+                    >
+                      Ver todas as atividades ({activityUnread} novas)
+                    </button>
+                  ) : null}
                 </div>
-                {notices.length ? (
-                  notices.map((notice) => (
-                    <article key={notice.id}>
-                      <p>{notice.message}</p>
-                      <span>{notice.createdAt}</span>
-                    </article>
-                  ))
-                ) : (
-                  <p className="cx-muted">Nenhuma notificação.</p>
-                )}
-                {role !== "membro" ? (
-                  <button
-                    className="cx-notice-all"
-                    onClick={() => {
-                      setNoticesOpen(false);
-                      setTab("activities");
-                    }}
-                  >
-                    Ver todas as atividades ({activityUnread} novas)
-                  </button>
-                ) : null}
-              </div>
-            )}
+              ) : null}
+            </div>
           </div>
           <button
             className="cx-user-chip"
@@ -526,6 +551,17 @@ function ClonexWorkspace() {
           onClose={() => setSelectedCaptureId(null)}
         />
       ) : null}
+      {selectedEquipmentId ? (
+        <EquipmentDetailPanel
+          data={data}
+          equipmentId={selectedEquipmentId}
+          onClose={() => setSelectedEquipmentId(null)}
+          onOpenCapture={(id) => {
+            setSelectedEquipmentId(null);
+            setSelectedCaptureId(id);
+          }}
+        />
+      ) : null}
       {selectedTeam ? (
         <TeamPanel
           data={data}
@@ -651,7 +687,7 @@ function CaptureDialog({ onClose }: { onClose(): void }) {
       description="Registre a atividade realizada. Ela ficará pendente para revisão."
       onClose={onClose}
     >
-      <form className="cx-form" onSubmit={submit}>
+      <form className="cx-form cx-equipment-form" onSubmit={submit}>
         <label>
           Atividade
           <input
@@ -715,6 +751,9 @@ function EquipmentDialog({ role, onClose }: { role: Role; onClose(): void }) {
   const [firstDeviceNumber, setFirstDeviceNumber] = useState(
     () => Math.max(0, ...(data?.equipment.map((item) => item.deviceNumber ?? 0) ?? [0])) + 1,
   );
+  const [firstDeviceEmail, setFirstDeviceEmail] = useState(
+    () => `clonex.cel.${firstDeviceNumber}@gmail.com`,
+  );
   const [allocations, setAllocations] = useState<
     Array<{ personId?: string; workload: "full_time" | "part_time" }>
   >([{ workload: "full_time" }]);
@@ -733,17 +772,24 @@ function EquipmentDialog({ role, onClose }: { role: Role; onClose(): void }) {
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!model.trim()) return;
+    const deviceEmails =
+      type === "celular" && owner === "clonex"
+        ? buildDeviceEmailSequence(firstDeviceEmail, quantity)
+        : [];
+    if (type === "celular" && owner === "clonex" && !deviceEmails) {
+      window.alert(
+        quantity > 1
+          ? "Para cadastrar um lote, o e-mail precisa terminar com um número antes do @."
+          : "Informe um e-mail válido para o celular Clonex.",
+      );
+      return;
+    }
     if (
-      type === "celular" &&
-      owner === "clonex" &&
-      data?.equipment.some(
-        (item) =>
-          item.deviceNumber !== undefined &&
-          item.deviceNumber >= firstDeviceNumber &&
-          item.deviceNumber < firstDeviceNumber + quantity,
+      deviceEmails?.some((email) =>
+        data?.equipment.some((item) => item.deviceEmail?.toLowerCase() === email),
       )
     ) {
-      window.alert("A sequência escolhida já contém um celular cadastrado.");
+      window.alert("A sequência escolhida já contém um e-mail de aparelho cadastrado.");
       return;
     }
     addEquipment(
@@ -757,7 +803,7 @@ function EquipmentDialog({ role, onClose }: { role: Role; onClose(): void }) {
         ...(type === "celular" && owner === "clonex"
           ? {
               firstDeviceNumber,
-              firstDeviceEmail: `clonex.cel.${firstDeviceNumber}@gmail.com`,
+              firstDeviceEmail: firstDeviceEmail.trim().toLowerCase(),
             }
           : {}),
         allocations,
@@ -787,15 +833,20 @@ function EquipmentDialog({ role, onClose }: { role: Role; onClose(): void }) {
         </div>
         {type === "celular" && owner === "clonex" ? (
           <label>
-            Número inicial do aparelho
+            E-mail/código do primeiro celular
             <input
-              type="number"
-              min="1"
-              value={firstDeviceNumber}
-              onChange={(event) => setFirstDeviceNumber(Math.max(1, Number(event.target.value)))}
+              type="email"
+              value={firstDeviceEmail}
+              onChange={(event) => {
+                const email = event.target.value;
+                setFirstDeviceEmail(email);
+                const number = clonexDeviceNumber(email);
+                if (number) setFirstDeviceNumber(number);
+              }}
+              placeholder="clonex.cel.8@gmail.com"
               required
             />
-            <small>Primeiro e-mail: clonex.cel.{firstDeviceNumber}@gmail.com</small>
+            <small>O e-mail identifica o aparelho e pode ser corrigido antes do cadastro.</small>
           </label>
         ) : null}
         <div className="cx-form-row">
@@ -868,12 +919,14 @@ function EquipmentDialog({ role, onClose }: { role: Role; onClose(): void }) {
         {type === "celular" && owner === "clonex" ? (
           <div className="cx-device-preview">
             <strong>Contas dos aparelhos</strong>
-            {Array.from({ length: quantity }, (_, index) => (
-              <span key={index}>
-                Celular {firstDeviceNumber + index}: clonex.cel.{firstDeviceNumber + index}
-                @gmail.com
+            {(buildDeviceEmailSequence(firstDeviceEmail, quantity) ?? []).map((email, index) => (
+              <span key={email}>
+                Celular {index + 1}: {email}
               </span>
             ))}
+            {!buildDeviceEmailSequence(firstDeviceEmail, quantity) ? (
+              <span>Use um e-mail numerado para gerar a sequência do lote.</span>
+            ) : null}
           </div>
         ) : null}
         <div className="cx-batch-allocations">
@@ -998,6 +1051,7 @@ function HowItWorksDialog({ role, onClose }: { role: Role; onClose(): void }) {
   ];
   const steps =
     role === "membro" ? memberSteps : role === "subleader" ? subleaderSteps : leaderSteps;
+  const minuteStepIndex = steps.findIndex(([title, text]) => `${title} ${text}`.includes("Minute"));
   return (
     <Dialog
       title="Como funciona"
@@ -1010,11 +1064,6 @@ function HowItWorksDialog({ role, onClose }: { role: Role; onClose(): void }) {
           alt="Mãos utilizando um celular para registrar uma atividade"
         />
         <div>
-          <img
-            className="cx-minute-logo"
-            src="/images/clonex-minute-logo.png"
-            alt="Logo do aplicativo Minute"
-          />
           <span className="cx-eyebrow">Fluxo de captura</span>
           <strong>Grave, registre e acompanhe.</strong>
         </div>
@@ -1023,9 +1072,20 @@ function HowItWorksDialog({ role, onClose }: { role: Role; onClose(): void }) {
         {steps.map(([title, text], index) => (
           <li key={title}>
             <span>{index + 1}</span>
-            <div>
+            <div
+              className={
+                index === minuteStepIndex ? "cx-how-step-copy has-minute-logo" : "cx-how-step-copy"
+              }
+            >
               <strong>{title}</strong>
               <p>{text}</p>
+              {index === minuteStepIndex ? (
+                <img
+                  className="cx-minute-logo"
+                  src="/images/clonex-minute-logo.png"
+                  alt="Logo do aplicativo Minute"
+                />
+              ) : null}
             </div>
           </li>
         ))}
@@ -1142,7 +1202,11 @@ function LoadingScreen() {
     <div className="cx-loading">
       <span className="cx-brand-mark" />
       <strong>Clonex</strong>
-      <p>Preparando sua operação…</p>
+      <span className="cx-loading-dots" role="status" aria-label="Carregando">
+        <i aria-hidden="true" />
+        <i aria-hidden="true" />
+        <i aria-hidden="true" />
+      </span>
     </div>
   );
 }

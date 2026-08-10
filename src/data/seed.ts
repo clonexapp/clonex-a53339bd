@@ -589,7 +589,7 @@ export const seedData: AppData = {
       size: "M",
       color: "Roxo",
       batchId: "batch-001",
-      assetCode: "CX-0001",
+      assetCode: "",
       teamId: "t1",
     },
     {
@@ -601,7 +601,7 @@ export const seedData: AppData = {
       assignedTo: "p1",
       color: "Preto",
       batchId: "batch-002",
-      assetCode: "CX-0002",
+      assetCode: "",
       teamId: "t1",
     },
     {
@@ -614,7 +614,7 @@ export const seedData: AppData = {
       size: "G",
       color: "Amarelo",
       batchId: "batch-001",
-      assetCode: "CX-0003",
+      assetCode: "",
       teamId: "t1",
     },
     {
@@ -626,7 +626,7 @@ export const seedData: AppData = {
       assignedTo: "p3",
       color: "Azul",
       batchId: "batch-003",
-      assetCode: "CX-0004",
+      assetCode: "",
       teamId: "t1",
     },
     {
@@ -639,7 +639,7 @@ export const seedData: AppData = {
       size: "P",
       color: "Branco",
       batchId: "batch-004",
-      assetCode: "CX-0005",
+      assetCode: "",
       teamId: "t2",
     },
     {
@@ -651,7 +651,7 @@ export const seedData: AppData = {
       size: "M",
       color: "Roxo",
       batchId: "batch-005",
-      assetCode: "CX-0006",
+      assetCode: "",
       teamId: "t1",
     },
     {
@@ -662,7 +662,7 @@ export const seedData: AppData = {
       status: "manutencao",
       color: "Preto",
       batchId: "batch-006",
-      assetCode: "CX-0007",
+      assetCode: "clonex.cel.1@gmail.com",
       teamId: "t1",
       deviceNumber: 1,
       deviceEmail: "clonex.cel.1@gmail.com",

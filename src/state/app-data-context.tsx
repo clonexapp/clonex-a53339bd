@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { AppData, Role } from "@/domain/types";
+import { buildDeviceEmailSequence, clonexDeviceNumber } from "@/lib/device-email";
 import { localAppRepository } from "@/repositories/local-app-repository";
 import { localAssetRepository } from "@/repositories/local-asset-repository";
 import { AppDataContext, type AppDataContextValue } from "@/state/app-data-context-value";
@@ -102,10 +103,13 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           const firstNumber =
             input.firstDeviceNumber ??
             Math.max(0, ...current.equipment.map((item) => item.deviceNumber ?? 0)) + 1;
+          const firstDeviceEmail = input.firstDeviceEmail ?? `clonex.cel.${firstNumber}@gmail.com`;
+          const deviceEmails = buildDeviceEmailSequence(firstDeviceEmail, quantity);
           const created = Array.from({ length: quantity }, (_, index) => {
             const allocation = input.allocations?.[index];
             const isClonexPhone = input.type === "celular" && input.owner === "clonex";
-            const deviceNumber = isClonexPhone ? firstNumber + index : undefined;
+            const deviceEmail = isClonexPhone ? deviceEmails?.[index] : undefined;
+            const deviceNumber = deviceEmail ? clonexDeviceNumber(deviceEmail) : undefined;
             return {
               id: crypto.randomUUID(),
               type: input.type,
@@ -115,12 +119,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
               ...(allocation?.personId ? { assignedTo: allocation.personId } : {}),
               color: input.color,
               batchId,
-              assetCode: `CX-${String(current.equipment.length + index + 1).padStart(4, "0")}`,
+              assetCode: isClonexPhone ? (deviceEmail ?? "") : "",
               ...((input.teamId ?? activeAccount?.teamId)
                 ? { teamId: input.teamId ?? activeAccount?.teamId }
                 : {}),
               ...(deviceNumber ? { deviceNumber } : {}),
-              ...(isClonexPhone ? { deviceEmail: `clonex.cel.${deviceNumber}@gmail.com` } : {}),
+              ...(deviceEmail ? { deviceEmail } : {}),
               ...(input.size ? { size: input.size } : {}),
             };
           });
@@ -187,9 +191,19 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       },
       addPerson(input, actorRole) {
         update((current) => {
+          const activeAccount = current.accounts.find((item) => item.id === activeAccountId);
+          const targetTeam = current.teams.find((team) => team.id === input.teamId);
           if (
+            !activeAccount ||
+            activeAccount.role === "membro" ||
+            (activeAccount.role === "subleader" && activeAccount.teamId !== input.teamId) ||
+            !targetTeam ||
             current.accounts.some(
               (account) => account.email.toLowerCase() === input.email.trim().toLowerCase(),
+            ) ||
+            current.people.some(
+              (person) =>
+                person.memberCode?.toLowerCase() === input.memberCode.trim().toLowerCase(),
             )
           )
             return current;
@@ -214,6 +228,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 name: input.name,
                 role: "membro",
                 team: input.team,
+                teamId: input.teamId,
+                region: input.region,
+                state: input.state,
                 city: input.city,
                 goalHours: input.goalHours,
                 targetDaysPerWeek: input.targetDaysPerWeek,
@@ -226,8 +243,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 hourlyRate: input.hourlyRate,
                 serviceName: input.serviceName,
                 minuteCode: input.minuteCode,
+                memberCode: input.memberCode.trim().toUpperCase(),
                 weekendAvailability: input.weekendAvailability,
-                ...(input.supervisorId ? { supervisorId: input.supervisorId } : {}),
+                ...((input.supervisorId ?? targetTeam.supervisorId)
+                  ? { supervisorId: input.supervisorId ?? targetTeam.supervisorId }
+                  : {}),
               },
             ],
             cycles: [
@@ -251,7 +271,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 role: "membro",
                 status: "pendente",
                 personId: id,
-                teamId: current.teams.find((team) => team.name === input.team)?.id,
+                teamId: input.teamId,
                 createdAt: occurredAt,
               },
             ],
@@ -596,7 +616,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 entity: "capture",
                 entityId: input.captureId,
                 action: "capture.change_requested",
-                actorId: account.personId,
+                ...(account.personId ? { actorId: account.personId } : {}),
                 actorName: account.name,
                 actorRole: "membro",
                 occurredAt,
@@ -744,7 +764,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           const account = current.accounts.find((item) => item.id === activeAccountId);
           const equipment = current.equipment.find(
             (item) =>
-              item.assetCode.toLowerCase() === assetCode.trim().toLowerCase() &&
+              (item.deviceEmail?.toLowerCase() === assetCode.trim().toLowerCase() ||
+                item.assetCode.toLowerCase() === assetCode.trim().toLowerCase()) &&
               item.assignedTo === personId,
           );
           if (!equipment || account?.personId !== personId) return current;
@@ -819,8 +840,31 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             )
           )
             return current;
-          const team = current.teams.find((item) => item.id === input.teamId);
-          if (!team) return current;
+          const existingTeam = current.teams.find((item) => item.id === input.teamId);
+          const newTeamName = input.teamName?.trim();
+          if (
+            (existingTeam?.supervisorId && existingTeam.supervisorId !== input.personId) ||
+            (!existingTeam &&
+              (!newTeamName ||
+                current.teams.some(
+                  (item) => item.name.toLowerCase() === newTeamName.toLowerCase(),
+                )))
+          )
+            return current;
+          const team = existingTeam
+            ? {
+                ...existingTeam,
+                region: input.region,
+                state: input.state.trim().toUpperCase(),
+                city: input.city.trim(),
+              }
+            : ({
+                id: crypto.randomUUID(),
+                name: newTeamName!,
+                region: input.region,
+                state: input.state.trim().toUpperCase(),
+                city: input.city.trim(),
+              } satisfies AppData["teams"][number]);
           const personId = input.personId ?? crypto.randomUUID();
           const accountId = input.accountId ?? crypto.randomUUID();
           const occurredAt = new Date().toISOString();
@@ -829,6 +873,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             name: input.name,
             role: "subleader" as const,
             team: team.name,
+            teamId: team.id,
+            region: team.region ?? input.region,
+            state: team.state ?? input.state.trim().toUpperCase(),
             city: team.city,
             goalHours: 0,
             targetDaysPerWeek: 5,
@@ -840,6 +887,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             hourlyRate: 0,
             serviceName: `Gestão da ${team.name}`,
             minuteCode: `SUB-${input.name.toUpperCase().replace(/[^A-Z0-9]/g, "-")}`,
+            memberCode: `SUB-${(team.state ?? input.state).toUpperCase()}-${personId.slice(0, 6).toUpperCase()}`,
             weekendAvailability: "ambos" as const,
           };
           return {
@@ -873,11 +921,199 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                     createdAt: occurredAt,
                   },
                 ],
-            teams: current.teams.map((item) =>
-              item.id === team.id
-                ? { ...item, supervisorId: input.status === "desativada" ? undefined : personId }
+            teams: [
+              ...current.teams
+                .filter((item) => item.id !== team.id)
+                .map((item) =>
+                  item.supervisorId === personId ? { ...item, supervisorId: undefined } : item,
+                ),
+              {
+                ...team,
+                supervisorId: input.status === "desativada" ? undefined : personId,
+              },
+            ],
+            auditEvents: [
+              {
+                id: crypto.randomUUID(),
+                entity: "person",
+                entityId: personId,
+                action: input.accountId ? "supervisor.updated" : "supervisor.created",
+                ...(account.personId ? { actorId: account.personId } : {}),
+                actorName: account.name,
+                actorRole: "lider",
+                occurredAt,
+                details: `${input.name} · ${team.name} · ${team.state ?? input.state}/${team.city}.`,
+                category: "conta",
+                team: team.name,
+                targetRole: "subleader",
+                targetPersonId: personId,
+              },
+              ...current.auditEvents,
+            ],
+          };
+        });
+      },
+      updateMemberProfile(personId, input, actorRole) {
+        update((current) => {
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          const person = current.people.find(
+            (item) => item.id === personId && item.role === "membro",
+          );
+          const code = input.memberCode.trim().toUpperCase();
+          if (
+            !account ||
+            !person ||
+            account.role === "membro" ||
+            (account.role === "subleader" && account.teamId !== person.teamId) ||
+            !code ||
+            current.people.some(
+              (item) => item.id !== personId && item.memberCode?.toUpperCase() === code,
+            )
+          )
+            return current;
+          const actor = actorFor(actorRole);
+          const occurredAt = new Date().toISOString();
+          return {
+            ...current,
+            people: current.people.map((item) =>
+              item.id === personId
+                ? {
+                    ...item,
+                    memberCode: code,
+                    region: input.region,
+                    state: input.state.trim().toUpperCase(),
+                    city: input.city.trim(),
+                  }
                 : item,
             ),
+            auditEvents: [
+              {
+                id: crypto.randomUUID(),
+                entity: "person",
+                entityId: personId,
+                action: "person.profile_updated",
+                category: "pessoa",
+                team: person.team,
+                targetRole: "membro",
+                targetPersonId: personId,
+                ...actor,
+                actorRole,
+                occurredAt,
+                details: `Atualizou código e localização de ${person.name}.`,
+              },
+              ...current.auditEvents,
+            ],
+          };
+        });
+      },
+      setMemberActive(personId, active, actorRole) {
+        update((current) => {
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          const person = current.people.find(
+            (item) => item.id === personId && item.role === "membro",
+          );
+          if (
+            !account ||
+            !person ||
+            person.archivedAt ||
+            account.role === "membro" ||
+            (account.role === "subleader" && account.teamId !== person.teamId)
+          )
+            return current;
+          const actor = actorFor(actorRole);
+          const occurredAt = new Date().toISOString();
+          return {
+            ...current,
+            people: current.people.map((item) =>
+              item.id === personId ? { ...item, active } : item,
+            ),
+            accounts: current.accounts.map((item) =>
+              item.personId === personId
+                ? { ...item, status: active ? "pendente" : "desativada" }
+                : item,
+            ),
+            auditEvents: [
+              {
+                id: crypto.randomUUID(),
+                entity: "person",
+                entityId: personId,
+                action: active ? "person.reactivated" : "person.deactivated",
+                category: "pessoa",
+                team: person.team,
+                targetRole: "membro",
+                targetPersonId: personId,
+                ...actor,
+                actorRole,
+                occurredAt,
+                details: `${active ? "Reativou" : "Desativou"} ${person.name}.`,
+              },
+              ...current.auditEvents,
+            ],
+          };
+        });
+      },
+      archiveMember(personId, actorRole) {
+        update((current) => {
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          const person = current.people.find(
+            (item) => item.id === personId && item.role === "membro",
+          );
+          if (
+            !account ||
+            !person ||
+            account.role === "membro" ||
+            (account.role === "subleader" && account.teamId !== person.teamId)
+          )
+            return current;
+          const actor = actorFor(actorRole);
+          const occurredAt = new Date().toISOString();
+          return {
+            ...current,
+            people: current.people.map((item) =>
+              item.id === personId
+                ? {
+                    ...item,
+                    active: false,
+                    archivedAt: occurredAt,
+                    archivedBy: actor.actorName,
+                  }
+                : item,
+            ),
+            accounts: current.accounts.map((item) =>
+              item.personId === personId ? { ...item, status: "desativada" } : item,
+            ),
+            cycles: current.cycles.map((item) =>
+              item.personId === personId && item.status === "ativo"
+                ? { ...item, status: "encerrado" }
+                : item,
+            ),
+            equipmentAssignments: current.equipmentAssignments.map((item) =>
+              item.personId === personId && item.active
+                ? { ...item, active: false, endsAt: occurredAt.slice(0, 10) }
+                : item,
+            ),
+            equipment: current.equipment.map((item) =>
+              item.assignedTo === personId
+                ? { ...item, assignedTo: undefined, status: "disponivel" }
+                : item,
+            ),
+            auditEvents: [
+              {
+                id: crypto.randomUUID(),
+                entity: "person",
+                entityId: personId,
+                action: "person.archived",
+                category: "pessoa",
+                team: person.team,
+                targetRole: "membro",
+                targetPersonId: personId,
+                ...actor,
+                actorRole,
+                occurredAt,
+                details: `Excluiu logicamente ${person.name}, preservando o histórico para auditoria.`,
+              },
+              ...current.auditEvents,
+            ],
           };
         });
       },

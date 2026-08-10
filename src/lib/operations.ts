@@ -212,8 +212,14 @@ export function buildOperationalActions(data: AppData, members: Person[]): Opera
 export function membersForRole(
   data: AppData,
   role: "subleader" | "lider",
-  teamName?: string,
+  teamValue?: string,
 ): Person[] {
-  if (role === "lider") return data.people.filter((person) => person.role === "membro");
-  return data.people.filter((person) => person.role === "membro" && person.team === teamName);
+  if (role === "lider")
+    return data.people.filter((person) => person.role === "membro" && !person.archivedAt);
+  return data.people.filter(
+    (person) =>
+      person.role === "membro" &&
+      !person.archivedAt &&
+      (person.teamId === teamValue || person.team === teamValue),
+  );
 }

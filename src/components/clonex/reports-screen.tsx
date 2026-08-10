@@ -40,14 +40,19 @@ export function ReportsScreen({
   const [period, setPeriod] = useState<ReportPeriod>("week");
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const team = data.teams.find((item) => item.id === activeAccount?.teamId);
-  const scope = useMemo(() => reportScopeFor(role, team?.name), [role, team?.name]);
+  const scope = useMemo(
+    () => reportScopeFor(role, team?.id ?? team?.name),
+    [role, team?.id, team?.name],
+  );
   const metrics = useMemo(() => buildReportMetrics(data, scope, period), [data, period, scope]);
   const teams = useMemo(
     () =>
       role === "lider"
         ? [
             ...new Set(
-              data.people.filter((person) => person.role === "membro").map((person) => person.team),
+              data.people
+                .filter((person) => person.role === "membro" && !person.archivedAt)
+                .map((person) => person.team),
             ),
           ]
         : [],
@@ -87,7 +92,7 @@ export function ReportsScreen({
       <div className="cx-report-heading">
         <div>
           <span className="cx-eyebrow">
-            {role === "lider" ? "Cidade · Juiz de Fora" : `Minha equipe · ${team?.name ?? "—"}`}
+            {role === "lider" ? "Brasil · todas as regiões" : `Minha equipe · ${team?.name ?? "—"}`}
           </span>
           <h1>Relatórios</h1>
           <p>Quantidade, constância e qualidade com origem verificável.</p>

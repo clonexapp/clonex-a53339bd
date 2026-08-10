@@ -7,6 +7,7 @@ import {
   Download,
   FileCheck2,
   Plus,
+  Upload,
   Users,
   Wrench,
 } from "lucide-react";
@@ -15,8 +16,9 @@ import { Card, EmptyState, StatusBadge } from "@/components/clonex/dashboard-ui"
 import { GoalBattery } from "@/components/clonex/goal-battery";
 import { Gamification } from "@/components/clonex/management-screens";
 import { SupervisorManual } from "@/components/clonex/supervisor-manual";
-import type { AppData, Role } from "@/domain/types";
+import type { AppData, GeographicRegion, Role } from "@/domain/types";
 import { formatDate, formatHours, formatMoney } from "@/lib/formatters";
+import { BRAZIL_STATES, GEOGRAPHIC_REGIONS, regionForState } from "@/lib/locations";
 import { approvedMinutes, memberProjection } from "@/lib/operations";
 import { useAppData } from "@/state/use-app-data";
 
@@ -40,9 +42,19 @@ export function PeopleOperationsScreen({
   onAddPerson(): void;
 }) {
   const { activeAccount } = useAppData();
-  const activeTeam = data.teams.find((team) => team.id === activeAccount?.teamId)?.name;
+  const [includeInactive, setIncludeInactive] = useState(false);
+  const [regionFilter, setRegionFilter] = useState("all");
+  const [stateFilter, setStateFilter] = useState("all");
+  const activeTeam = data.teams.find((team) => team.id === activeAccount?.teamId);
   const members = data.people.filter(
-    (person) => person.role === "membro" && (role === "lider" || person.team === activeTeam),
+    (person) =>
+      person.role === "membro" &&
+      (includeInactive ? true : person.active && !person.archivedAt) &&
+      (role === "lider" ||
+        person.teamId === activeAccount?.teamId ||
+        person.team === activeTeam?.name) &&
+      (regionFilter === "all" || person.region === regionFilter) &&
+      (stateFilter === "all" || person.state === stateFilter),
   );
   const visibleCompanyIds = new Set(
     members.flatMap((person) => (person.companyId ? [person.companyId] : [])),
@@ -60,6 +72,43 @@ export function PeopleOperationsScreen({
             <Plus size={17} /> Cadastrar membro
           </button>
         ) : null}
+      </div>
+      <div className="cx-people-filters">
+        {role === "lider" ? (
+          <>
+            <label>
+              Região
+              <select
+                value={regionFilter}
+                onChange={(event) => setRegionFilter(event.target.value)}
+              >
+                <option value="all">Todas</option>
+                {GEOGRAPHIC_REGIONS.map((item) => (
+                  <option key={item}>{item}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Estado
+              <select value={stateFilter} onChange={(event) => setStateFilter(event.target.value)}>
+                <option value="all">Todos</option>
+                {BRAZIL_STATES.map(([code, name]) => (
+                  <option key={code} value={code}>
+                    {code} · {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        ) : null}
+        <label className="cx-inline-filter">
+          <input
+            type="checkbox"
+            checked={includeInactive}
+            onChange={(event) => setIncludeInactive(event.target.checked)}
+          />
+          Mostrar membros inativos e arquivados
+        </label>
       </div>
       {visibleCompanyIds.size ? (
         <div className="cx-company-grid">
@@ -114,9 +163,12 @@ export function PeopleOperationsScreen({
                   </p>
                 </div>
                 <span className={`cx-presence ${person.active ? "is-active" : ""}`}>
-                  {person.active ? "Ativo" : "Inativo"}
+                  {person.archivedAt ? "Arquivado" : person.active ? "Ativo" : "Inativo"}
                 </span>
               </div>
+              <small>
+                {person.memberCode ?? "Sem código"} · {person.state ?? "MG"}/{person.city}
+              </small>
               <GoalBattery
                 minutes={personMinutes(data, person.id)}
                 goalHours={cycle?.goalHours ?? person.goalHours}
@@ -151,9 +203,13 @@ export function MemberDetailScreen({
     declareConsent,
     confirmEquipment,
     completeTriage,
+    updateMemberProfile,
+    setMemberActive,
+    archiveMember,
   } = useAppData();
   const [assetCode, setAssetCode] = useState("");
   const [downloadError, setDownloadError] = useState(false);
+  const [consentFileName, setConsentFileName] = useState("");
   const person = data.people.find((item) => item.id === personId);
   if (!person) return <EmptyState>Membro não encontrado.</EmptyState>;
   const company = data.companies.find((item) => item.id === person.companyId);
@@ -181,6 +237,7 @@ export function MemberDetailScreen({
     if (!(file instanceof File) || !file.size) return;
     await addConsent(personId, file, String(form.get("validUntil") || "") || undefined, role);
     event.currentTarget.reset();
+    setConsentFileName("");
   }
 
   function saveCycle(event: FormEvent<HTMLFormElement>) {
@@ -194,6 +251,22 @@ export function MemberDetailScreen({
         endsAt: String(form.get("endsAt")),
         goalHours: Number(form.get("goalHours")),
         targetDaysPerWeek: Number(form.get("targetDaysPerWeek")),
+      },
+      role,
+    );
+  }
+
+  function saveOperationalProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const state = String(form.get("state"));
+    updateMemberProfile(
+      personId,
+      {
+        memberCode: String(form.get("memberCode")),
+        region: String(form.get("region") || regionForState(state)) as GeographicRegion,
+        state,
+        city: String(form.get("city")),
       },
       role,
     );
@@ -216,13 +289,88 @@ export function MemberDetailScreen({
           <span className="cx-eyebrow">Perfil operacional</span>
           <h1>{person.name}</h1>
           <p>
-            {company?.name ?? "Profissional autônomo"} · {person.team} · {person.city}
+            {company?.name ?? "Profissional autônomo"} · {person.team} · {person.state ?? "MG"}/
+            {person.city}
           </p>
         </div>
         <span className={`cx-presence ${person.active ? "is-active" : ""}`}>
-          {person.active ? "Ativo" : "Inativo"}
+          {person.archivedAt ? "Arquivado" : person.active ? "Ativo" : "Inativo"}
         </span>
       </div>
+      {role !== "membro" ? (
+        <Card>
+          <div className="cx-card-heading">
+            <div>
+              <span className="cx-eyebrow">Administração do membro</span>
+              <h2>Identificação e localidade</h2>
+            </div>
+          </div>
+          <form className="cx-form-grid cx-member-admin-form" onSubmit={saveOperationalProfile}>
+            <label>
+              Código de identificação
+              <input name="memberCode" defaultValue={person.memberCode} required />
+            </label>
+            <label>
+              Região
+              <select name="region" defaultValue={person.region ?? "Sudeste"}>
+                {GEOGRAPHIC_REGIONS.map((item) => (
+                  <option key={item}>{item}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Estado
+              <select name="state" defaultValue={person.state ?? "MG"}>
+                {BRAZIL_STATES.map(([code, name]) => (
+                  <option key={code} value={code}>
+                    {code} · {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Cidade
+              <input name="city" defaultValue={person.city} required />
+            </label>
+            <button className="cx-button" type="submit">
+              Salvar dados
+            </button>
+          </form>
+          {!person.archivedAt ? (
+            <div className="cx-member-account-actions">
+              <button
+                className="cx-button cx-button-secondary"
+                onClick={() => {
+                  const action = person.active ? "desativar" : "reativar";
+                  if (window.confirm(`Confirma ${action} ${person.name}?`))
+                    setMemberActive(person.id, !person.active, role);
+                }}
+              >
+                {person.active ? "Desativar membro" : "Reativar membro"}
+              </button>
+              <button
+                className="cx-button cx-button-danger"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Arquivar ${person.name}? O acesso será desativado e o histórico será preservado para auditoria.`,
+                    )
+                  ) {
+                    archiveMember(person.id, role);
+                    onBack();
+                  }
+                }}
+              >
+                Excluir e arquivar membro
+              </button>
+            </div>
+          ) : (
+            <p className="cx-muted">
+              Este membro está arquivado. Capturas, pagamentos e auditorias permanecem preservados.
+            </p>
+          )}
+        </Card>
+      ) : null}
       {person.role === "subleader" ? (
         <SupervisorManual
           data={data}
@@ -255,6 +403,10 @@ export function MemberDetailScreen({
             <p>
               <strong>{person.minuteCode}</strong>
               <span>Código individual Minute</span>
+            </p>
+            <p>
+              <strong>{person.memberCode ?? "Não informado"}</strong>
+              <span>Código de identificação Clonex</span>
             </p>
             <p>
               <strong>
@@ -383,11 +535,11 @@ export function MemberDetailScreen({
               }}
             >
               <label>
-                Confirmar kit pelo patrimônio
+                Confirmar celular Clonex pelo e-mail/código
                 <input
                   value={assetCode}
                   onChange={(event) => setAssetCode(event.target.value)}
-                  placeholder="CX-0001"
+                  placeholder="clonex.cel.1@gmail.com"
                   required
                 />
               </label>
@@ -442,14 +594,19 @@ export function MemberDetailScreen({
           {role !== "membro" ? (
             <>
               <form className="cx-consent-form" onSubmit={upload}>
-                <label>
-                  Arquivo
+                <label className="cx-file-picker">
+                  <span>Arquivo</span>
                   <input
                     required
                     name="consent"
                     type="file"
                     accept="application/pdf,image/png,image/jpeg"
+                    onChange={(event) => setConsentFileName(event.target.files?.[0]?.name ?? "")}
                   />
+                  <strong>
+                    <Upload size={17} />
+                    <span>{consentFileName || "Selecionar PDF ou imagem"}</span>
+                  </strong>
                 </label>
                 <label>
                   Validade opcional

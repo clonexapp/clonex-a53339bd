@@ -13,6 +13,7 @@ import type {
   AccessAccount,
   CaptureChangeRequest,
   WeekendAvailability,
+  GeographicRegion,
 } from "@/domain/types";
 
 export interface AppDataContextValue {
@@ -67,9 +68,20 @@ export interface AppDataContextValue {
     personId?: string;
     name: string;
     email: string;
-    teamId: string;
+    teamId?: string;
+    teamName?: string;
+    region: GeographicRegion;
+    state: string;
+    city: string;
     status: "pendente" | "ativa" | "desativada";
   }): void;
+  updateMemberProfile(
+    personId: string,
+    input: { memberCode: string; region: GeographicRegion; state: string; city: string },
+    actorRole: Role,
+  ): void;
+  setMemberActive(personId: string, active: boolean, actorRole: Role): void;
+  archiveMember(personId: string, actorRole: Role): void;
   updateWeekendAvailability(personId: string, value: WeekendAvailability): void;
   markNoticesRead(role: Role): void;
   recordAccess(personId: string): void;

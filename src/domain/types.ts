@@ -16,10 +16,12 @@ export type ReportMetric =
   | "consent_coverage";
 
 export type AuditCategory =
-  "captura" | "pessoa" | "equipamento" | "consentimento" | "meta" | "pagamento" | "ciclo";
+  "captura" | "pessoa" | "equipamento" | "consentimento" | "meta" | "pagamento" | "ciclo" | "conta";
 export type ConsentMode = "upload" | "fisico" | "digital";
 export type AccountStatus = "pendente" | "ativa" | "desativada";
 export type WeekendAvailability = "nenhum" | "sabado" | "domingo" | "ambos";
+export type GeographicRegion =
+  "Norte" | "Nordeste" | "Centro-Oeste" | "Sudeste" | "Sul" | "Internacional";
 
 export type AuditEntity =
   | "capture"
@@ -33,7 +35,7 @@ export type AuditEntity =
   | "assignment";
 
 export interface ReportScope {
-  kind: "person" | "team" | "city";
+  kind: "person" | "team" | "city" | "state" | "region" | "country";
   value: string;
 }
 
@@ -42,6 +44,9 @@ export interface Person {
   name: string;
   role: Role;
   team: string;
+  teamId?: string;
+  region?: GeographicRegion;
+  state?: string;
   city: string;
   goalHours: number;
   targetDaysPerWeek: number;
@@ -55,12 +60,17 @@ export interface Person {
   serviceName: string;
   supervisorId?: string | undefined;
   minuteCode: string;
+  memberCode?: string;
   weekendAvailability: WeekendAvailability;
+  archivedAt?: string;
+  archivedBy?: string;
 }
 
 export interface Team {
   id: string;
   name: string;
+  region?: GeographicRegion;
+  state?: string;
   city: string;
   supervisorId?: string | undefined;
 }
@@ -79,6 +89,8 @@ export interface AccessAccount {
 export interface Company {
   id: string;
   name: string;
+  region?: GeographicRegion;
+  state?: string;
   city: string;
   cnpj?: string;
   contact?: string;
@@ -130,7 +142,7 @@ export interface Equipment {
   model: string;
   owner: "clonex" | "proprio";
   status: EquipmentStatus;
-  assignedTo?: string;
+  assignedTo?: string | undefined;
   size?: string;
   color: string;
   batchId: string;
@@ -330,6 +342,9 @@ export interface NewPerson {
   email: string;
   phone: string;
   team: string;
+  teamId: string;
+  region: GeographicRegion;
+  state: string;
   city: string;
   affiliation: AffiliationType;
   companyId?: string;
@@ -342,11 +357,14 @@ export interface NewPerson {
   serviceName: string;
   supervisorId?: string;
   minuteCode: string;
+  memberCode: string;
   weekendAvailability: WeekendAvailability;
 }
 
 export interface NewCompany {
   name: string;
+  region: GeographicRegion;
+  state: string;
   city: string;
   cnpj?: string;
   contact?: string;
