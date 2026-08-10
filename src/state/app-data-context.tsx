@@ -1,10 +1,21 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import type { AppData, Role } from "@/domain/types";
+import type { AccessAccount, AppData, Role } from "@/domain/types";
 import { buildDeviceEmailSequence, clonexDeviceNumber } from "@/lib/device-email";
 import { localAppRepository } from "@/repositories/local-app-repository";
 import { localAssetRepository } from "@/repositories/local-asset-repository";
 import { AppDataContext, type AppDataContextValue } from "@/state/app-data-context-value";
+
+function canManagePerson(
+  data: AppData,
+  account: AccessAccount | undefined,
+  personId: string,
+): boolean {
+  if (!account || account.role === "membro") return false;
+  if (account.role === "lider") return true;
+  const person = data.people.find((item) => item.id === personId);
+  return Boolean(person && account.teamId && person.teamId === account.teamId);
+}
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<AppData | null>(null);
@@ -53,8 +64,14 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           const personId = account?.personId;
           const person = current.people.find((item) => item.id === personId);
           if (
+            account?.role !== "membro" ||
             !personId ||
             !person ||
+            !Number.isFinite(input.minutes) ||
+            input.minutes <= 0 ||
+            !current.equipment.some(
+              (item) => item.id === input.equipmentId && item.assignedTo === personId,
+            ) ||
             !current.consentDeclarations.some((item) => item.personId === personId)
           )
             return current;
@@ -93,18 +110,45 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           };
         });
       },
-      addEquipment(input, actorRole) {
+      addEquipment(input) {
         update((current) => {
-          const actor = actorFor(actorRole);
+          const activeAccount = current.accounts.find((item) => item.id === activeAccountId);
+          const targetTeamId = input.teamId ?? activeAccount?.teamId;
+          if (
+            !activeAccount ||
+            activeAccount.role === "membro" ||
+            !input.model.trim() ||
+            !input.color.trim() ||
+            !Number.isFinite(input.quantity) ||
+            (activeAccount.role === "subleader" && targetTeamId !== activeAccount.teamId) ||
+            input.allocations?.some((allocation) => {
+              if (!allocation.personId) return false;
+              const person = current.people.find((item) => item.id === allocation.personId);
+              return !person || person.teamId !== targetTeamId;
+            })
+          )
+            return current;
+          const actualRole = activeAccount.role;
+          const actor = actorFor(actualRole);
           const occurredAt = new Date().toISOString();
           const batchId = crypto.randomUUID();
           const quantity = Math.min(50, Math.max(1, input.quantity));
-          const activeAccount = current.accounts.find((item) => item.id === activeAccountId);
           const firstNumber =
             input.firstDeviceNumber ??
             Math.max(0, ...current.equipment.map((item) => item.deviceNumber ?? 0)) + 1;
           const firstDeviceEmail = input.firstDeviceEmail ?? `clonex.cel.${firstNumber}@gmail.com`;
           const deviceEmails = buildDeviceEmailSequence(firstDeviceEmail, quantity);
+          const createsClonexPhone = input.type === "celular" && input.owner === "clonex";
+          if (
+            createsClonexPhone &&
+            (!deviceEmails ||
+              deviceEmails.some((email) =>
+                current.equipment.some(
+                  (item) => item.deviceEmail?.toLowerCase() === email.toLowerCase(),
+                ),
+              ))
+          )
+            return current;
           const created = Array.from({ length: quantity }, (_, index) => {
             const allocation = input.allocations?.[index];
             const isClonexPhone = input.type === "celular" && input.owner === "clonex";
@@ -120,9 +164,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
               color: input.color,
               batchId,
               assetCode: isClonexPhone ? (deviceEmail ?? "") : "",
-              ...((input.teamId ?? activeAccount?.teamId)
-                ? { teamId: input.teamId ?? activeAccount?.teamId }
-                : {}),
+              ...(targetTeamId ? { teamId: targetTeamId } : {}),
               ...(deviceNumber ? { deviceNumber } : {}),
               ...(deviceEmail ? { deviceEmail } : {}),
               ...(input.size ? { size: input.size } : {}),
@@ -153,7 +195,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 entityId: batchId,
                 action: "equipment.created",
                 ...actor,
-                actorRole,
+                actorRole: actualRole,
                 occurredAt,
                 details: `Cadastrou lote com ${quantity} ${input.type}(s), ${input.model}, cor ${input.color}.`,
                 category: "equipamento",
@@ -163,10 +205,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           };
         });
       },
-      addCompany(input, actorRole) {
+      addCompany(input) {
         const id = crypto.randomUUID();
         update((current) => {
-          const actor = actorFor(actorRole);
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          if (!account || account.role === "membro") return current;
+          const actor = actorFor(account.role);
           const occurredAt = new Date().toISOString();
           return {
             ...current,
@@ -178,7 +222,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 entityId: id,
                 action: "company.created",
                 ...actor,
-                actorRole,
+                actorRole: account.role,
                 occurredAt,
                 details: `Cadastrou a empresa ${input.name}.`,
                 category: "pessoa",
@@ -189,7 +233,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         });
         return id;
       },
-      addPerson(input, actorRole) {
+      addPerson(input) {
         update((current) => {
           const activeAccount = current.accounts.find((item) => item.id === activeAccountId);
           const targetTeam = current.teams.find((team) => team.id === input.teamId);
@@ -204,12 +248,20 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             current.people.some(
               (person) =>
                 person.memberCode?.toLowerCase() === input.memberCode.trim().toLowerCase(),
-            )
+            ) ||
+            input.equipmentIds.some((equipmentId) => {
+              const equipment = current.equipment.find((item) => item.id === equipmentId);
+              return (
+                !equipment ||
+                equipment.status !== "disponivel" ||
+                (equipment.teamId && equipment.teamId !== input.teamId)
+              );
+            })
           )
             return current;
           const id = crypto.randomUUID();
           const cycleId = crypto.randomUUID();
-          const actor = actorFor(actorRole);
+          const actor = actorFor(activeAccount.role);
           const occurredAt = new Date().toISOString();
           const assignments = input.equipmentIds.map((equipmentId) => ({
             id: crypto.randomUUID(),
@@ -292,7 +344,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 targetRole: "membro",
                 targetPersonId: id,
                 ...actor,
-                actorRole,
+                actorRole: activeAccount.role,
                 occurredAt,
                 details: `Cadastrou ${input.name} como ${input.affiliation === "empresa" ? "membro de empresa" : "autônomo"}.`,
               },
@@ -301,11 +353,16 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           };
         });
       },
-      async addConsent(personId, file, validUntil, actorRole) {
+      async addConsent(personId, file, validUntil) {
+        const account = data?.accounts.find((item) => item.id === activeAccountId);
+        if (!data || !canManagePerson(data, account, personId)) return;
         const storageKey = `consent-${personId}-${crypto.randomUUID()}`;
         await localAssetRepository.save(storageKey, file);
         update((current) => {
-          const actor = actorFor(actorRole);
+          const currentAccount = current.accounts.find((item) => item.id === activeAccountId);
+          if (!canManagePerson(current, currentAccount, personId)) return current;
+          const actualRole = currentAccount!.role as "subleader" | "lider";
+          const actor = actorFor(actualRole);
           const occurredAt = new Date().toISOString();
           return {
             ...current,
@@ -340,7 +397,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 targetRole: "membro",
                 targetPersonId: personId,
                 ...actor,
-                actorRole,
+                actorRole: actualRole,
                 occurredAt,
                 details: `Registrou o termo ${file.name}.`,
               },
@@ -352,9 +409,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       downloadConsent(storageKey, fileName) {
         return localAssetRepository.open(storageKey, fileName);
       },
-      addSignedConsent(personId, mode, validUntil, actorRole) {
+      addSignedConsent(personId, mode, validUntil) {
         update((current) => {
-          const actor = actorFor(actorRole);
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          if (!canManagePerson(current, account, personId)) return current;
+          const actualRole = account!.role as "subleader" | "lider";
+          const actor = actorFor(actualRole);
           const occurredAt = new Date().toISOString();
           const person = current.people.find((item) => item.id === personId);
           const id = crypto.randomUUID();
@@ -383,7 +443,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 entityId: id,
                 action: `consent.${mode}`,
                 ...actor,
-                actorRole,
+                actorRole: actualRole,
                 occurredAt,
                 details: `Marcou o termo de ${person?.name ?? "membro"} como assinado ${mode === "fisico" ? "fisicamente" : "digitalmente"}.`,
                 category: "consentimento",
@@ -396,9 +456,34 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           };
         });
       },
-      addPayment(input, actorRole) {
+      addPayment(input) {
         update((current) => {
-          const actor = actorFor(actorRole);
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          if (
+            !canManagePerson(current, account, input.personId) ||
+            !Number.isFinite(input.hours) ||
+            !Number.isFinite(input.amount) ||
+            !Number.isFinite(input.hourlyRate) ||
+            input.hours < 0 ||
+            input.amount < 0 ||
+            input.hourlyRate < 0 ||
+            (input.cycleId &&
+              !current.cycles.some(
+                (cycle) => cycle.id === input.cycleId && cycle.personId === input.personId,
+              )) ||
+            input.captureIds.some(
+              (captureId) =>
+                !current.captures.some(
+                  (capture) =>
+                    capture.id === captureId &&
+                    capture.personId === input.personId &&
+                    capture.status === "aprovado",
+                ),
+            )
+          )
+            return current;
+          const actualRole = account!.role as "subleader" | "lider";
+          const actor = actorFor(actualRole);
           const occurredAt = new Date().toISOString();
           const cycle = current.cycles.find((item) => item.id === input.cycleId);
           const period = cycle
@@ -422,7 +507,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 targetRole: "membro",
                 targetPersonId: input.personId,
                 ...actor,
-                actorRole,
+                actorRole: actualRole,
                 occurredAt,
                 details: `Registrou pagamento de ${input.hours}h no valor de R$ ${input.amount.toFixed(2)}.`,
               },
@@ -431,11 +516,21 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           };
         });
       },
-      updateCycle(id, input, actorRole) {
+      updateCycle(id, input) {
         update((current) => {
-          const actor = actorFor(actorRole);
-          const occurredAt = new Date().toISOString();
           const cycle = current.cycles.find((item) => item.id === id);
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          if (
+            !cycle ||
+            !canManagePerson(current, account, cycle.personId) ||
+            input.endsAt < input.startsAt ||
+            !Number.isFinite(input.goalHours) ||
+            !Number.isFinite(input.targetDaysPerWeek)
+          )
+            return current;
+          const actualRole = account!.role as "subleader" | "lider";
+          const actor = actorFor(actualRole);
+          const occurredAt = new Date().toISOString();
           return {
             ...current,
             cycles: current.cycles.map((item) =>
@@ -469,7 +564,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 targetRole: "membro",
                 targetPersonId: cycle?.personId,
                 ...actor,
-                actorRole,
+                actorRole: actualRole,
                 occurredAt,
                 details: `Atualizou o ciclo para ${input.startsAt} a ${input.endsAt}, com meta de ${input.goalHours}h.`,
               },
@@ -478,11 +573,14 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           };
         });
       },
-      updateCaptureStatus(id, status, actorRole) {
+      updateCaptureStatus(id, status) {
         update((current) => {
-          const actor = actorFor(actorRole);
-          const occurredAt = new Date().toISOString();
           const capture = current.captures.find((item) => item.id === id);
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          if (!capture || !canManagePerson(current, account, capture.personId)) return current;
+          const actualRole = account!.role as "subleader" | "lider";
+          const actor = actorFor(actualRole);
+          const occurredAt = new Date().toISOString();
           const nextCaptures = current.captures.map((item) =>
             item.id === id
               ? { ...item, status, reviewedAt: occurredAt, reviewedBy: actor.actorName }
@@ -521,7 +619,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                     targetRole: "membro",
                     targetPersonId: capture.personId,
                     ...actor,
-                    actorRole,
+                    actorRole: actualRole,
                     occurredAt,
                     details: `${status === "aprovado" ? "Aprovou" : "Reprovou"} ${capture.activity}.`,
                   },
@@ -531,9 +629,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           };
         });
       },
-      updatePersonGoal(id, goalHours, actorRole) {
+      updatePersonGoal(id, goalHours) {
         update((current) => {
-          const actor = actorFor(actorRole);
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          if (!canManagePerson(current, account, id) || !Number.isFinite(goalHours)) return current;
+          const actualRole = account!.role as "subleader" | "lider";
+          const actor = actorFor(actualRole);
           const nextGoal = Math.max(0, goalHours);
           return {
             ...current,
@@ -551,7 +652,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 targetRole: "membro",
                 targetPersonId: id,
                 ...actor,
-                actorRole,
+                actorRole: actualRole,
                 occurredAt: new Date().toISOString(),
                 details: `Alterou a meta mensal para ${nextGoal} horas.`,
               },
@@ -762,13 +863,17 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         let confirmed = false;
         update((current) => {
           const account = current.accounts.find((item) => item.id === activeAccountId);
+          const normalizedCode = assetCode.trim().toLowerCase();
           const equipment = current.equipment.find(
             (item) =>
-              (item.deviceEmail?.toLowerCase() === assetCode.trim().toLowerCase() ||
-                item.assetCode.toLowerCase() === assetCode.trim().toLowerCase()) &&
+              item.type === "celular" &&
+              item.owner === "clonex" &&
+              Boolean(normalizedCode) &&
+              item.deviceEmail?.toLowerCase() === normalizedCode &&
               item.assignedTo === personId,
           );
-          if (!equipment || account?.personId !== personId) return current;
+          if (!equipment || account?.role !== "membro" || account.personId !== personId)
+            return current;
           confirmed = true;
           const occurredAt = new Date().toISOString();
           return {
@@ -785,7 +890,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       completeTriage(id, decision, notes) {
         update((current) => {
           const account = current.accounts.find((item) => item.id === activeAccountId);
-          if (!account || account.role === "membro") return current;
+          const triage = current.memberTriages.find((item) => item.id === id);
+          if (!triage || !canManagePerson(current, account, triage.personId)) return current;
           return {
             ...current,
             memberTriages: current.memberTriages.map((item) =>
@@ -796,7 +902,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                     decision,
                     notes,
                     completedAt: new Date().toISOString(),
-                    completedBy: account.name,
+                    completedBy: account!.name,
                   }
                 : item,
             ),
@@ -806,7 +912,13 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       saveWeeklyForecast(input) {
         update((current) => {
           const account = current.accounts.find((item) => item.id === activeAccountId);
-          if (!account || account.role === "membro") return current;
+          if (
+            !account ||
+            account.role === "membro" ||
+            (account.role === "subleader" && account.teamId !== input.teamId) ||
+            !current.teams.some((team) => team.id === input.teamId)
+          )
+            return current;
           const occurredAt = new Date().toISOString();
           const existing = current.weeklyForecasts.find(
             (item) => item.teamId === input.teamId && item.weekStartsAt === input.weekStartsAt,

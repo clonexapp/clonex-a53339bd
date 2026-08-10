@@ -76,8 +76,10 @@ function normalizeData(value: Partial<AppData>): AppData {
   });
   for (const supervisor of fallback.people.filter((person) => person.role === "subleader")) {
     const existing = people.find((person) => person.id === supervisor.id);
-    if (existing) Object.assign(existing, supervisor);
-    else people.push(supervisor);
+    if (existing) {
+      const storedSupervisor = { ...existing };
+      Object.assign(existing, supervisor, storedSupervisor);
+    } else people.push(supervisor);
   }
 
   const teamSources = [...fallback.teams];
@@ -107,7 +109,7 @@ function normalizeData(value: Partial<AppData>): AppData {
     const existing = baseAccounts.find(
       (item) => item.email.toLowerCase() === account.email.toLowerCase(),
     );
-    return { ...account, ...existing, email: account.email };
+    return { ...account, ...existing, email: existing?.email ?? account.email };
   });
   for (const account of baseAccounts) {
     if (!accounts.some((item) => item.email.toLowerCase() === account.email.toLowerCase())) {

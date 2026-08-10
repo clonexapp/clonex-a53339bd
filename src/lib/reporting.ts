@@ -27,16 +27,23 @@ function referenceDate(data: AppData) {
   return new Date(timestamps.length ? Math.max(...timestamps) : Date.now());
 }
 
+function personMatchesScope(person: AppData["people"][number], scope: ReportScope) {
+  if (scope.kind === "person") return person.id === scope.value;
+  if (scope.kind === "team") return person.teamId === scope.value || person.team === scope.value;
+  if (scope.kind === "city") return person.city === scope.value;
+  if (scope.kind === "state") return person.state === scope.value;
+  if (scope.kind === "region") return person.region === scope.value;
+  return scope.kind === "country";
+}
+
 function scopePeople(data: AppData, scope: ReportScope) {
-  return data.people.filter((person) => {
-    if (person.role !== "membro" || !person.active || person.archivedAt) return false;
-    if (scope.kind === "person") return person.id === scope.value;
-    if (scope.kind === "team") return person.teamId === scope.value || person.team === scope.value;
-    if (scope.kind === "city") return person.city === scope.value;
-    if (scope.kind === "state") return person.state === scope.value;
-    if (scope.kind === "region") return person.region === scope.value;
-    return scope.kind === "country";
-  });
+  return data.people.filter(
+    (person) =>
+      person.role === "membro" &&
+      person.active &&
+      !person.archivedAt &&
+      personMatchesScope(person, scope),
+  );
 }
 
 function reportInterval(data: AppData, period: ReportPeriod) {
@@ -228,13 +235,7 @@ export function buildReportMetrics(
 export function buildActivePeopleSource(data: AppData, scope: ReportScope): MetricSource {
   const people = scopePeople(data, scope);
   const allPeople = data.people.filter(
-    (person) =>
-      person.role === "membro" &&
-      (scope.kind === "person"
-        ? person.id === scope.value
-        : scope.kind === "team"
-          ? person.team === scope.value
-          : person.city === scope.value),
+    (person) => person.role === "membro" && !person.archivedAt && personMatchesScope(person, scope),
   );
   return {
     metric: "active_people",

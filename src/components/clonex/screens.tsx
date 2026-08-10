@@ -426,9 +426,11 @@ export function EquipmentScreen({
         title="Equipamentos"
         description="Capacetes e celulares disponíveis para a operação."
         action={
-          <button className="cx-button" onClick={onAddEquipment}>
-            <Plus size={17} /> Equipamento
-          </button>
+          role !== "membro" ? (
+            <button className="cx-button" onClick={onAddEquipment}>
+              <Plus size={17} /> Equipamento
+            </button>
+          ) : undefined
         }
       />
       <div className="cx-stats-grid">
