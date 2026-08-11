@@ -154,13 +154,20 @@ export function ActivitiesScreen({
         </select>
         <select value={category} onChange={(e) => setCategory(e.target.value as typeof category)}>
           <option value="all">Todas as categorias</option>
-          {["captura", "pessoa", "equipamento", "consentimento", "meta", "pagamento", "ciclo"].map(
-            (item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ),
-          )}
+          {[
+            "captura",
+            "pessoa",
+            "equipamento",
+            "consentimento",
+            "meta",
+            "pagamento",
+            "ciclo",
+            "prospeccao",
+          ].map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
         </select>
         <select value={person} onChange={(e) => setPerson(e.target.value)}>
           <option value="all">Todas as pessoas</option>
@@ -736,7 +743,7 @@ export function SupervisorsScreen({
           <h1>Sublíderes</h1>
           <p>Contas pendentes, responsáveis, operação e riscos por equipe.</p>
         </div>
-        <button className="cx-button" onClick={() => setEditing("new")}>
+        <button className="cx-button cx-add-action" onClick={() => setEditing("new")}>
           <Plus size={17} /> Cadastrar Sublíder
         </button>
       </div>
@@ -1018,7 +1025,12 @@ export function EquipmentDetailPanel({
   const assignedPerson = data.people.find((item) => item.id === activeAssignment?.personId);
   const team = data.teams.find((item) => item.id === equipment.teamId);
   const captures = data.captures
-    .filter((item) => item.equipmentId === equipment.id)
+    .filter(
+      (item) =>
+        item.equipmentId === equipment.id ||
+        item.helmetEquipmentId === equipment.id ||
+        item.phoneEquipmentId === equipment.id,
+    )
     .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
   const events = data.auditEvents.filter(
     (item) =>
@@ -1184,7 +1196,15 @@ export function CaptureDetailPanel({
   }, [onClose]);
   if (!capture) return null;
   const person = data.people.find((p) => p.id === capture.personId);
-  const equipment = data.equipment.find((e) => e.id === capture.equipmentId);
+  const legacyEquipment = data.equipment.find((item) => item.id === capture.equipmentId);
+  const helmet = capture.helmetEquipmentId
+    ? data.equipment.find((item) => item.id === capture.helmetEquipmentId)
+    : legacyEquipment?.type === "capacete"
+      ? legacyEquipment
+      : undefined;
+  const phone = capture.phoneEquipmentId
+    ? data.equipment.find((item) => item.id === capture.phoneEquipmentId)
+    : undefined;
   const events = data.auditEvents.filter(
     (e) => e.entity === "capture" && e.entityId === capture.id,
   );
@@ -1225,11 +1245,17 @@ export function CaptureDetailPanel({
               <dd>{new Date(capture.recordedAt).toLocaleString("pt-BR")}</dd>
             </div>
             <div>
-              <dt>Equipamento</dt>
+              <dt>Capacete</dt>
+              <dd>{helmet ? `${helmet.model} · ${helmet.color}` : "Não identificado"}</dd>
+            </div>
+            <div>
+              <dt>Celular</dt>
               <dd>
-                {equipment?.deviceEmail
-                  ? `${equipment.deviceEmail} · ${equipment.type} · ${equipment.model}`
-                  : `${equipment?.type ?? "Equipamento"} · ${equipment?.model ?? "Não identificado"}`}
+                {capture.phoneUsage === "clonex"
+                  ? (phone?.deviceEmail ?? phone?.model ?? "Celular Clonex não identificado")
+                  : capture.phoneUsage === "proprio"
+                    ? (phone?.model ?? "Celular próprio")
+                    : "Não utilizado"}
               </dd>
             </div>
             <div>
@@ -1326,9 +1352,14 @@ export function CaptureDetailPanel({
                     defaultValue={capture.recordedAt.slice(0, 16)}
                     required
                   />
-                  <select name="equipmentId" defaultValue={capture.equipmentId}>
+                  <select
+                    name="equipmentId"
+                    defaultValue={capture.helmetEquipmentId ?? capture.equipmentId}
+                  >
                     {data.equipment
-                      .filter((item) => item.assignedTo === capture.personId)
+                      .filter(
+                        (item) => item.assignedTo === capture.personId && item.type === "capacete",
+                      )
                       .map((item) => (
                         <option key={item.id} value={item.id}>
                           {item.deviceEmail ? `${item.deviceEmail} · ` : ""}

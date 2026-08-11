@@ -65,15 +65,30 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           const account = current.accounts.find((item) => item.id === activeAccountId);
           const personId = account?.personId;
           const person = current.people.find((item) => item.id === personId);
+          const helmet = current.equipment.find(
+            (item) =>
+              item.id === input.helmetEquipmentId &&
+              item.type === "capacete" &&
+              item.assignedTo === personId,
+          );
+          const phone = input.phoneEquipmentId
+            ? current.equipment.find(
+                (item) =>
+                  item.id === input.phoneEquipmentId &&
+                  item.type === "celular" &&
+                  item.assignedTo === personId,
+              )
+            : undefined;
           if (
             account?.role !== "membro" ||
             !personId ||
             !person ||
             !Number.isFinite(input.minutes) ||
             input.minutes <= 0 ||
-            !current.equipment.some(
-              (item) => item.id === input.equipmentId && item.assignedTo === personId,
-            ) ||
+            !helmet ||
+            input.equipmentId !== helmet.id ||
+            (input.phoneUsage === "clonex" && (!phone || phone.owner !== "clonex")) ||
+            (input.phoneUsage === "proprio" && phone && phone.owner !== "proprio") ||
             !current.consentDeclarations.some((item) => item.personId === personId)
           )
             return current;
@@ -101,7 +116,13 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 actorName: person.name,
                 actorRole: "membro",
                 occurredAt,
-                details: `Registrou ${input.minutes} minutos de ${input.activity}.`,
+                details: `Registrou ${input.minutes} minutos de ${input.activity} com ${helmet.model} e ${
+                  input.phoneUsage === "clonex"
+                    ? (phone?.deviceEmail ?? phone?.model ?? "celular Clonex")
+                    : input.phoneUsage === "proprio"
+                      ? "celular próprio"
+                      : "sem celular"
+                }.`,
                 category: "captura",
                 team: person.team,
                 targetRole: "membro",
@@ -804,7 +825,13 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                       reviewedAt: occurredAt,
                       reviewedBy: account.name,
                     }
-                  : { ...item, ...request.proposed },
+                  : {
+                      ...item,
+                      ...request.proposed,
+                      ...(request.proposed?.equipmentId
+                        ? { helmetEquipmentId: request.proposed.equipmentId }
+                        : {}),
+                    },
             ),
             captureChangeRequests: current.captureChangeRequests.map((item) =>
               item.id === id
@@ -1342,6 +1369,140 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 actorRole: account.role,
                 occurredAt,
                 details: `Restaurou os padrões herdados de ${team?.name ?? city}.`,
+                ...(team ? { team: team.name } : {}),
+              },
+              ...current.auditEvents,
+            ],
+          };
+        });
+      },
+      addProspect(input) {
+        const account = data?.accounts.find((item) => item.id === activeAccountId);
+        if (!data || !account || account.role === "membro") return { ok: false };
+        if (account.role === "subleader" && input.teamId !== account.teamId) return { ok: false };
+        const normalizedPlace = input.placeName.trim().toLocaleLowerCase("pt-BR");
+        const normalizedContact = input.contact.replace(/\D/g, "");
+        const duplicate = data.prospects.find(
+          (item) =>
+            item.placeName.trim().toLocaleLowerCase("pt-BR") === normalizedPlace ||
+            (normalizedContact.length >= 6 &&
+              item.contact.replace(/\D/g, "") === normalizedContact),
+        );
+        if (duplicate) return { ok: false, duplicateId: duplicate.id };
+        const id = crypto.randomUUID();
+        update((current) => {
+          const currentAccount = current.accounts.find((item) => item.id === activeAccountId);
+          const team = current.teams.find((item) => item.id === input.teamId);
+          if (!currentAccount || currentAccount.role === "membro" || !team) return current;
+          const occurredAt = new Date().toISOString();
+          const actor = actorFor(currentAccount.role);
+          return {
+            ...current,
+            prospects: [
+              {
+                id,
+                contactName: input.contactName.trim(),
+                placeName: input.placeName.trim(),
+                placeType: input.placeType,
+                contact: input.contact.trim(),
+                city: input.city.trim(),
+                state: input.state.trim().toUpperCase(),
+                teamId: input.teamId,
+                ownerAccountId: currentAccount.id,
+                status: "novo",
+                notes: input.notes.trim(),
+                active: true,
+                createdAt: occurredAt,
+                updatedAt: occurredAt,
+                createdBy: actor.actorName,
+              },
+              ...current.prospects,
+            ],
+            prospectHistory: [
+              {
+                id: crypto.randomUUID(),
+                prospectId: id,
+                toStatus: "novo",
+                note: input.notes.trim() || "Prospecção cadastrada.",
+                occurredAt,
+                actorName: actor.actorName,
+                ...(actor.actorId ? { actorId: actor.actorId } : {}),
+              },
+              ...current.prospectHistory,
+            ],
+            auditEvents: [
+              {
+                id: crypto.randomUUID(),
+                entity: "prospect",
+                entityId: id,
+                action: "prospect.created",
+                category: "prospeccao",
+                ...actor,
+                actorRole: currentAccount.role,
+                occurredAt,
+                details: `Cadastrou a prospecção de ${input.placeName.trim()}.`,
+                team: team.name,
+              },
+              ...current.auditEvents,
+            ],
+          };
+        });
+        return { ok: true };
+      },
+      updateProspect(input) {
+        update((current) => {
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          const prospect = current.prospects.find((item) => item.id === input.id);
+          if (!account || account.role === "membro" || !prospect) return current;
+          if (account.role === "subleader" && prospect.teamId !== account.teamId) return current;
+          if (input.status === "negado" && !input.rejectionReason?.trim()) return current;
+          const team = current.teams.find((item) => item.id === prospect.teamId);
+          const occurredAt = new Date().toISOString();
+          const actor = actorFor(account.role);
+          const rejectionReason = input.rejectionReason?.trim();
+          return {
+            ...current,
+            prospects: current.prospects.map((item) => {
+              if (item.id !== prospect.id) return item;
+              const updated = {
+                ...item,
+                status: input.status,
+                notes: input.note.trim() || item.notes,
+                active: input.active,
+                updatedAt: occurredAt,
+              };
+              if (input.status === "negado" && rejectionReason)
+                updated.rejectionReason = rejectionReason;
+              else delete updated.rejectionReason;
+              return updated;
+            }),
+            prospectHistory: [
+              {
+                id: crypto.randomUUID(),
+                prospectId: prospect.id,
+                fromStatus: prospect.status,
+                toStatus: input.status,
+                note:
+                  input.status === "negado" && rejectionReason
+                    ? `${input.note.trim() || "Contato negado."} Motivo: ${rejectionReason}`
+                    : input.note.trim() || `Status alterado para ${input.status}.`,
+                occurredAt,
+                actorName: actor.actorName,
+                ...(actor.actorId ? { actorId: actor.actorId } : {}),
+              },
+              ...current.prospectHistory,
+            ],
+            auditEvents: [
+              {
+                id: crypto.randomUUID(),
+                entity: "prospect",
+                entityId: prospect.id,
+                action: "prospect.updated",
+                category: "prospeccao",
+                ...actor,
+                actorRole: account.role,
+                occurredAt,
+                details: `Atualizou ${prospect.placeName} de ${prospect.status} para ${input.status}.`,
                 ...(team ? { team: team.name } : {}),
               },
               ...current.auditEvents,

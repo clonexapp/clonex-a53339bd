@@ -16,6 +16,8 @@ import type {
   GeographicRegion,
   AlertPolicy,
   AlertPolicyValues,
+  NewProspect,
+  ProspectStatus,
 } from "@/domain/types";
 
 export interface AppDataContextValue {
@@ -92,6 +94,14 @@ export interface AppDataContextValue {
     values: Partial<AlertPolicyValues>;
   }): void;
   resetAlertPolicy(scope: AlertPolicy["scope"], city: string, teamId?: string): void;
+  addProspect(input: NewProspect): { ok: boolean; duplicateId?: string };
+  updateProspect(input: {
+    id: string;
+    status: ProspectStatus;
+    note: string;
+    rejectionReason?: string;
+    active: boolean;
+  }): void;
   markNoticesRead(role: Role): void;
   recordAccess(personId: string): void;
   markActivitiesSeen(role: Role): void;

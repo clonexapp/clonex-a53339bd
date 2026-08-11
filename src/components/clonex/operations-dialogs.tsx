@@ -354,7 +354,15 @@ export function PaymentDialog({ role, onClose }: { role: Role; onClose(): void }
       captures,
       hours,
       rate,
-      equipmentIds: [...new Set(captures.map((item) => item.equipmentId))],
+      equipmentIds: [
+        ...new Set(
+          captures.flatMap((item) =>
+            [item.helmetEquipmentId ?? item.equipmentId, item.phoneEquipmentId].filter(
+              (id): id is string => Boolean(id),
+            ),
+          ),
+        ),
+      ],
     };
   }, [data, personId]);
   if (!data || !suggestion?.person) return null;

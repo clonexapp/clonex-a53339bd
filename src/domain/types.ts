@@ -16,11 +16,23 @@ export type ReportMetric =
   | "consent_coverage";
 
 export type AuditCategory =
-  "captura" | "pessoa" | "equipamento" | "consentimento" | "meta" | "pagamento" | "ciclo" | "conta";
+  | "captura"
+  | "pessoa"
+  | "equipamento"
+  | "consentimento"
+  | "meta"
+  | "pagamento"
+  | "ciclo"
+  | "conta"
+  | "prospeccao";
 export type ConsentMode = "upload" | "fisico" | "digital";
 export type AccountStatus = "pendente" | "ativa" | "desativada";
 export type WeekendAvailability = "nenhum" | "sabado" | "domingo" | "ambos";
 export type PaymentPlan = "celular_proprio" | "celular_clonex";
+export type CapturePhoneUsage = "nenhum" | "proprio" | "clonex";
+export type ProspectStatus = "novo" | "contatado" | "negociacao" | "convertido" | "negado";
+export type ProspectPlaceType =
+  "empresa" | "comercio" | "industria" | "servico" | "autonomo" | "outro";
 export type GeographicRegion =
   "Norte" | "Nordeste" | "Centro-Oeste" | "Sudeste" | "Sul" | "Internacional";
 
@@ -34,7 +46,8 @@ export type AuditEntity =
   | "cycle"
   | "consent"
   | "assignment"
-  | "alert_policy";
+  | "alert_policy"
+  | "prospect";
 
 export interface AlertPolicyValues {
   inactivityDays: number;
@@ -137,6 +150,9 @@ export interface Capture {
   activity: string;
   minutes: number;
   equipmentId: string;
+  helmetEquipmentId?: string;
+  phoneUsage?: CapturePhoneUsage;
+  phoneEquipmentId?: string;
   status: CaptureStatus;
   recordedAt: string;
   reviewedAt?: string;
@@ -213,6 +229,36 @@ export interface WeeklyBusinessForecast {
   notes: string;
   updatedAt: string;
   updatedBy: string;
+}
+
+export interface Prospect {
+  id: string;
+  contactName: string;
+  placeName: string;
+  placeType: ProspectPlaceType;
+  contact: string;
+  city: string;
+  state: string;
+  teamId: string;
+  ownerAccountId: string;
+  status: ProspectStatus;
+  notes: string;
+  rejectionReason?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+}
+
+export interface ProspectHistoryEvent {
+  id: string;
+  prospectId: string;
+  fromStatus?: ProspectStatus;
+  toStatus: ProspectStatus;
+  note: string;
+  occurredAt: string;
+  actorName: string;
+  actorId?: string;
 }
 
 export interface ConsentRecord {
@@ -342,12 +388,17 @@ export interface AppData {
   memberTriages: MemberTriage[];
   weeklyForecasts: WeeklyBusinessForecast[];
   alertPolicies: AlertPolicy[];
+  prospects: Prospect[];
+  prospectHistory: ProspectHistoryEvent[];
 }
 
 export interface NewCapture {
   activity: string;
   minutes: number;
   equipmentId: string;
+  helmetEquipmentId: string;
+  phoneUsage: CapturePhoneUsage;
+  phoneEquipmentId?: string;
 }
 
 export interface NewEquipment {
@@ -406,4 +457,15 @@ export interface NewPayment {
   captureIds: string[];
   equipmentIds: string[];
   status: "previsto" | "pago";
+}
+
+export interface NewProspect {
+  contactName: string;
+  placeName: string;
+  placeType: ProspectPlaceType;
+  contact: string;
+  city: string;
+  state: string;
+  teamId: string;
+  notes: string;
 }

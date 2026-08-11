@@ -5,6 +5,7 @@ import {
   Activity,
   BarChart3,
   Bell,
+  BriefcaseBusiness,
   Camera,
   ChevronRight,
   CircleDollarSign,
@@ -23,7 +24,7 @@ import {
   X,
 } from "lucide-react";
 
-import type { EquipmentType, MetricSource, Role } from "@/domain/types";
+import type { CapturePhoneUsage, EquipmentType, MetricSource, Role } from "@/domain/types";
 import { buildDeviceEmailSequence, clonexDeviceNumber } from "@/lib/device-email";
 import { useDialogBehavior } from "@/hooks/use-dialog-behavior";
 import { buildOperationalActions, membersForRole } from "@/lib/operations";
@@ -39,6 +40,7 @@ import {
 import { MetricSourcePanel } from "@/components/clonex/metric-source-panel";
 import { InstallPrompt } from "@/components/clonex/install-prompt";
 import { ReportsScreen } from "@/components/clonex/reports-screen";
+import { ProspectingScreen } from "@/components/clonex/prospecting-screen";
 import {
   CompanyDialog,
   MemberDetailScreen,
@@ -69,7 +71,8 @@ type TabKey =
   | "pending"
   | "activities"
   | "insights"
-  | "supervisors";
+  | "supervisors"
+  | "prospecting";
 
 const OPERATION_IMAGE_PATHS = [
   "/images/clonex-helmet-3d.png",
@@ -116,6 +119,7 @@ const NAVIGATION: Record<Role, NavItem[]> = {
     { key: "reports", label: "Relatórios", icon: ScrollText },
     { key: "insights", label: "Insights", icon: Lightbulb },
     { key: "activities", label: "Atividades", icon: Activity },
+    { key: "prospecting", label: "Prospecção", icon: BriefcaseBusiness },
   ],
   lider: [
     { key: "overview", label: "Visão geral", icon: BarChart3 },
@@ -127,6 +131,7 @@ const NAVIGATION: Record<Role, NavItem[]> = {
     { key: "activities", label: "Atividades", icon: Activity },
     { key: "pending", label: "Pendências", icon: AlertTriangle },
     { key: "supervisors", label: "Sublíderes", icon: Users },
+    { key: "prospecting", label: "Prospecção", icon: BriefcaseBusiness },
   ],
 };
 
@@ -194,7 +199,8 @@ function ClonexWorkspace() {
             item.key !== "pending" &&
             item.key !== "activities" &&
             item.key !== "insights" &&
-            item.key !== "supervisors",
+            item.key !== "supervisors" &&
+            item.key !== "prospecting",
         );
   const notices = data.notices.filter((notice) => notice.role === role);
   const operationalActions =
@@ -529,6 +535,9 @@ function ClonexWorkspace() {
           {!selectedPersonId && tab === "supervisors" && role === "lider" && (
             <SupervisorsScreen data={data} onOpenTeam={setSelectedTeam} />
           )}
+          {!selectedPersonId && tab === "prospecting" && role !== "membro" && (
+            <ProspectingScreen data={data} role={role} />
+          )}
         </main>
 
         <nav className="cx-bottom-nav" aria-label="Navegação móvel">
@@ -553,7 +562,8 @@ function ClonexWorkspace() {
                 tab === "pending" ||
                 tab === "activities" ||
                 tab === "insights" ||
-                tab === "supervisors"
+                tab === "supervisors" ||
+                tab === "prospecting"
                   ? "is-active"
                   : ""
               }
@@ -729,15 +739,35 @@ function AccessScreen({
 function CaptureDialog({ onClose }: { onClose(): void }) {
   const { data, activeAccount, addCapture } = useAppData();
   const personId = activeAccount?.personId;
+  const assignedEquipment = data?.equipment.filter((item) => item.assignedTo === personId) ?? [];
+  const helmets = assignedEquipment.filter((item) => item.type === "capacete");
+  const clonexPhones = assignedEquipment.filter(
+    (item) => item.type === "celular" && item.owner === "clonex",
+  );
+  const ownPhone = assignedEquipment.find(
+    (item) => item.type === "celular" && item.owner === "proprio",
+  );
   const [activity, setActivity] = useState("");
   const [minutes, setMinutes] = useState("30");
-  const [equipmentId, setEquipmentId] = useState(
-    data?.equipment.find((item) => item.assignedTo === personId)?.id ?? "",
-  );
+  const [helmetEquipmentId, setHelmetEquipmentId] = useState(helmets[0]?.id ?? "");
+  const [phoneUsage, setPhoneUsage] = useState<CapturePhoneUsage>("nenhum");
+  const [phoneEquipmentId, setPhoneEquipmentId] = useState(clonexPhones[0]?.id ?? "");
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (!activity.trim() || !equipmentId) return;
-    addCapture({ activity: activity.trim(), minutes: Math.max(1, Number(minutes)), equipmentId });
+    if (!activity.trim() || !helmetEquipmentId || (phoneUsage === "clonex" && !phoneEquipmentId))
+      return;
+    addCapture({
+      activity: activity.trim(),
+      minutes: Math.max(1, Number(minutes)),
+      equipmentId: helmetEquipmentId,
+      helmetEquipmentId,
+      phoneUsage,
+      ...(phoneUsage === "clonex" && phoneEquipmentId
+        ? { phoneEquipmentId }
+        : phoneUsage === "proprio" && ownPhone
+          ? { phoneEquipmentId: ownPhone.id }
+          : {}),
+    });
     onClose();
   }
   return (
@@ -746,7 +776,7 @@ function CaptureDialog({ onClose }: { onClose(): void }) {
       description="Registre a atividade realizada. Ela ficará pendente para revisão."
       onClose={onClose}
     >
-      <form className="cx-form cx-equipment-form" onSubmit={submit}>
+      <form className="cx-form" onSubmit={submit}>
         <label>
           Atividade
           <input
@@ -769,23 +799,86 @@ function CaptureDialog({ onClose }: { onClose(): void }) {
             />
           </label>
           <label>
-            Equipamento
+            Capacete utilizado
             <select
-              value={equipmentId}
-              onChange={(event) => setEquipmentId(event.target.value)}
+              value={helmetEquipmentId}
+              onChange={(event) => setHelmetEquipmentId(event.target.value)}
               required
             >
-              <option value="">Selecione</option>
-              {data?.equipment
-                .filter((item) => item.assignedTo === personId)
-                .map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.type} · {item.model}
-                  </option>
-                ))}
+              <option value="">Selecione o capacete</option>
+              {helmets.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.model} · {item.color}
+                  {item.size ? ` · ${item.size}` : ""}
+                </option>
+              ))}
             </select>
+            {!helmets.length ? (
+              <small>Você precisa ter um capacete alocado para registrar a captura.</small>
+            ) : null}
           </label>
         </div>
+        <fieldset className="cx-capture-phone-choice">
+          <legend>Celular utilizado</legend>
+          <div>
+            <label className={phoneUsage === "nenhum" ? "is-selected" : ""}>
+              <input
+                type="radio"
+                name="phoneUsage"
+                value="nenhum"
+                checked={phoneUsage === "nenhum"}
+                onChange={() => setPhoneUsage("nenhum")}
+              />
+              <strong>Não usei celular</strong>
+              <small>Captura registrada somente com o capacete.</small>
+            </label>
+            <label className={phoneUsage === "proprio" ? "is-selected" : ""}>
+              <input
+                type="radio"
+                name="phoneUsage"
+                value="proprio"
+                checked={phoneUsage === "proprio"}
+                onChange={() => setPhoneUsage("proprio")}
+              />
+              <strong>Celular próprio</strong>
+              <small>{ownPhone ? ownPhone.model : "Meu aparelho, sem patrimônio Clonex."}</small>
+            </label>
+            <label
+              className={`${phoneUsage === "clonex" ? "is-selected" : ""}${!clonexPhones.length ? " is-disabled" : ""}`}
+            >
+              <input
+                type="radio"
+                name="phoneUsage"
+                value="clonex"
+                checked={phoneUsage === "clonex"}
+                onChange={() => setPhoneUsage("clonex")}
+                disabled={!clonexPhones.length}
+              />
+              <strong>Celular Clonex</strong>
+              <small>
+                {clonexPhones.length
+                  ? "Escolha um aparelho cadastrado abaixo."
+                  : "Nenhum celular Clonex alocado."}
+              </small>
+            </label>
+          </div>
+          {phoneUsage === "clonex" ? (
+            <label className="cx-capture-clonex-phone">
+              Aparelho Clonex cadastrado
+              <select
+                value={phoneEquipmentId}
+                onChange={(event) => setPhoneEquipmentId(event.target.value)}
+                required
+              >
+                {clonexPhones.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.deviceEmail ?? item.model} · {item.model}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+        </fieldset>
         <div className="cx-dialog-actions">
           <button type="button" className="cx-button cx-button--ghost" onClick={onClose}>
             Cancelar
@@ -878,7 +971,7 @@ function EquipmentDialog({ role, onClose }: { role: Role; onClose(): void }) {
       description="O item ficará disponível no inventário local."
       onClose={onClose}
     >
-      <form className="cx-form" onSubmit={submit}>
+      <form className="cx-form cx-equipment-form" onSubmit={submit}>
         <div className="cx-equipment-dialog-art" aria-hidden="true">
           <img
             src={
@@ -1174,6 +1267,7 @@ function MoreDialog({
       ? [{ key: "insights" as const, label: "Insights", icon: Lightbulb }]
       : []),
     { key: "activities", label: "Atividades", icon: Activity },
+    { key: "prospecting", label: "Prospecção", icon: BriefcaseBusiness },
     ...(role === "lider"
       ? [
           { key: "pending" as const, label: "Pendências", icon: AlertTriangle },
@@ -1202,7 +1296,9 @@ function MoreDialog({
                   ? "Quantidade, previsibilidade e qualidade"
                   : item.key === "pending"
                     ? "Ações, riscos e alertas importantes"
-                    : "Pagamentos realizados e previstos"}
+                    : item.key === "prospecting"
+                      ? "Contatos, conversões e histórico de locais"
+                      : "Pagamentos realizados e previstos"}
               </small>
             </span>
             <ChevronRight size={17} />

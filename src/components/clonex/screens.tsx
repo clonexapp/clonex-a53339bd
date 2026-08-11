@@ -64,7 +64,7 @@ export function OverviewScreen({
           title={`Olá, ${member.name.split(" ")[0]}`}
           description="Acompanhe seu ciclo e registre as capturas do dia."
           action={
-            <button className="cx-button" onClick={onAddCapture}>
+            <button className="cx-button cx-add-action" onClick={onAddCapture}>
               <Plus size={17} /> Nova captura
             </button>
           }
@@ -268,7 +268,7 @@ export function CapturesScreen({
         description="Registros enviados pela equipe e seus estados de revisão."
         action={
           role === "membro" ? (
-            <button className="cx-button" onClick={onAddCapture}>
+            <button className="cx-button cx-add-action" onClick={onAddCapture}>
               <Plus size={17} /> Nova captura
             </button>
           ) : undefined
@@ -407,15 +407,17 @@ export function EquipmentScreen({
   const [statusFilter, setStatusFilter] = useState("all");
   const [ownerFilter, setOwnerFilter] = useState("all");
   const [workloadFilter, setWorkloadFilter] = useState("all");
-  const filteredEquipment = data.equipment.filter((item) => {
+  const currentTeamId = data.teams.find((team) => team.name === currentTeam)?.id;
+  const scopedEquipment = data.equipment.filter(
+    (item) =>
+      role === "lider" ||
+      (role === "membro" ? item.assignedTo === currentPersonId : item.teamId === currentTeamId),
+  );
+  const filteredEquipment = scopedEquipment.filter((item) => {
     const assignment = data.equipmentAssignments.find(
       (candidate) => candidate.equipmentId === item.id && candidate.active,
     );
     return (
-      (role === "lider" ||
-        (role === "membro"
-          ? item.assignedTo === currentPersonId
-          : item.teamId === data.teams.find((team) => team.name === currentTeam)?.id)) &&
       (typeFilter === "all" || item.type === typeFilter) &&
       (statusFilter === "all" || item.status === statusFilter) &&
       (ownerFilter === "all" || item.owner === ownerFilter) &&
@@ -430,23 +432,43 @@ export function EquipmentScreen({
         description="Capacetes e celulares disponíveis para a operação."
         action={
           role !== "membro" ? (
-            <button className="cx-button" onClick={onAddEquipment}>
+            <button className="cx-button cx-add-action" onClick={onAddEquipment}>
               <Plus size={17} /> Equipamento
             </button>
           ) : undefined
         }
       />
+      {role !== "membro" ? (
+        <div className="cx-equipment-type-summary">
+          <button className="is-helmet" onClick={() => setTypeFilter("capacete")}>
+            <span>
+              <small>Inventário de capacetes</small>
+              <strong>{scopedEquipment.filter((item) => item.type === "capacete").length}</strong>
+              <b>capacetes no total</b>
+            </span>
+            <img src="/images/clonex-helmet-3d.png" alt="Capacete 3D" />
+          </button>
+          <button className="is-phone" onClick={() => setTypeFilter("celular")}>
+            <span>
+              <small>Inventário de celulares</small>
+              <strong>{scopedEquipment.filter((item) => item.type === "celular").length}</strong>
+              <b>celulares no total</b>
+            </span>
+            <img src="/images/clonex-phone-3d.png" alt="Celular 3D" />
+          </button>
+        </div>
+      ) : null}
       <div className="cx-stats-grid">
-        <StatCard label="Total" value={String(data.equipment.length)} detail="Itens cadastrados" />
+        <StatCard label="Total" value={String(scopedEquipment.length)} detail="Itens cadastrados" />
         <StatCard
           label="Disponíveis"
-          value={String(data.equipment.filter((item) => item.status === "disponivel").length)}
+          value={String(scopedEquipment.filter((item) => item.status === "disponivel").length)}
           detail="Prontos para alocar"
           tone="accent"
         />
         <StatCard
           label="Em manutenção"
-          value={String(data.equipment.filter((item) => item.status === "manutencao").length)}
+          value={String(scopedEquipment.filter((item) => item.status === "manutencao").length)}
           detail="Precisam de atenção"
           tone="warning"
         />
@@ -579,7 +601,7 @@ export function FinanceScreen({
         description="Valores calculados a partir das horas registradas."
         action={
           onAddPayment ? (
-            <button className="cx-button" onClick={onAddPayment}>
+            <button className="cx-button cx-add-action" onClick={onAddPayment}>
               <Plus size={17} /> Registrar pagamento
             </button>
           ) : undefined

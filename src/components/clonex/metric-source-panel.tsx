@@ -92,7 +92,27 @@ export function MetricSourcePanel({
             <div className="cx-source-records">
               {captures.length ? (
                 captures.map((capture) => {
-                  const equipment = data.equipment.find((item) => item.id === capture.equipmentId);
+                  const legacyEquipment = data.equipment.find(
+                    (item) => item.id === capture.equipmentId,
+                  );
+                  const helmet = capture.helmetEquipmentId
+                    ? data.equipment.find((item) => item.id === capture.helmetEquipmentId)
+                    : legacyEquipment?.type === "capacete"
+                      ? legacyEquipment
+                      : undefined;
+                  const phone = capture.phoneEquipmentId
+                    ? data.equipment.find((item) => item.id === capture.phoneEquipmentId)
+                    : undefined;
+                  const equipmentLabel = [
+                    helmet ? `Capacete · ${helmet.model}` : "Capacete não identificado",
+                    capture.phoneUsage === "clonex"
+                      ? phone
+                        ? `Celular Clonex · ${phone.deviceEmail ?? phone.model}`
+                        : "Celular Clonex"
+                      : capture.phoneUsage === "proprio"
+                        ? "Celular próprio"
+                        : "Sem celular",
+                  ].join(" · ");
                   return (
                     <article key={capture.id}>
                       <div>
@@ -101,9 +121,7 @@ export function MetricSourcePanel({
                       </div>
                       <div className="cx-source-record-meta">
                         <span>{formatHours(capture.minutes)}</span>
-                        <span>
-                          {equipment ? `${equipment.type} · ${equipment.model}` : "Sem equipamento"}
-                        </span>
+                        <span>{equipmentLabel}</span>
                         <StatusBadge status={capture.status} />
                       </div>
                       {capture.reviewedBy ? (

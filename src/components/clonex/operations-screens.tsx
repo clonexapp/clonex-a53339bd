@@ -70,7 +70,7 @@ export function PeopleOperationsScreen({
           <p>Autônomos, empresas, ciclos e disponibilidade operacional.</p>
         </div>
         {role === "subleader" ? (
-          <button className="cx-button" onClick={onAddPerson}>
+          <button className="cx-button cx-add-action" onClick={onAddPerson}>
             <Plus size={17} /> Cadastrar membro
           </button>
         ) : null}

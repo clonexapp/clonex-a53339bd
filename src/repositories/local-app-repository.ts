@@ -1,9 +1,11 @@
 import { seedData } from "@/data/seed";
-import type { AccessAccount, AppData, Person } from "@/domain/types";
+import type { AccessAccount, AppData, Capture, Equipment, Person } from "@/domain/types";
 import type { AppRepository } from "@/repositories/app-repository";
 
-const STORAGE_KEY = "clonex:app-data:v7";
+const STORAGE_KEY = "clonex:app-data:v9";
 const PREVIOUS_KEYS = [
+  "clonex:app-data:v8",
+  "clonex:app-data:v7",
   "clonex:app-data:v6",
   "clonex:app-data:v5",
   "clonex:app-data:v4",
@@ -39,7 +41,31 @@ function cloneSeed(): AppData {
     region: company.region ?? "Sudeste",
     state: company.state ?? "MG",
   }));
+  data.captures = data.captures.map((capture) =>
+    normalizeCaptureEquipment(capture, data.equipment),
+  );
   return data;
+}
+
+function normalizeCaptureEquipment(capture: Capture, equipment: Equipment[]): Capture {
+  const legacyEquipment = equipment.find((item) => item.id === capture.equipmentId);
+  const legacyIsPhone = legacyEquipment?.type === "celular";
+  return {
+    ...capture,
+    ...(capture.helmetEquipmentId
+      ? { helmetEquipmentId: capture.helmetEquipmentId }
+      : legacyEquipment?.type === "capacete"
+        ? { helmetEquipmentId: legacyEquipment.id }
+        : {}),
+    phoneUsage:
+      capture.phoneUsage ??
+      (legacyIsPhone ? (legacyEquipment?.owner === "clonex" ? "clonex" : "proprio") : "nenhum"),
+    ...(capture.phoneEquipmentId
+      ? { phoneEquipmentId: capture.phoneEquipmentId }
+      : legacyIsPhone
+        ? { phoneEquipmentId: legacyEquipment.id }
+        : {}),
+  };
 }
 
 function migratedTeam(name: string) {
@@ -200,7 +226,9 @@ function normalizeData(value: Partial<AppData>): AppData {
       state: company.state ?? "MG",
     })),
     cycles: value.cycles ?? fallback.cycles,
-    captures: value.captures ?? fallback.captures,
+    captures: (value.captures ?? fallback.captures).map((capture) =>
+      normalizeCaptureEquipment(capture, equipment),
+    ),
     captureChangeRequests: (value.captureChangeRequests ?? []).flatMap((request) => {
       const capture = (value.captures ?? fallback.captures).find(
         (item) => item.id === request.captureId,
@@ -247,6 +275,8 @@ function normalizeData(value: Partial<AppData>): AppData {
     memberTriages: value.memberTriages ?? [],
     weeklyForecasts: value.weeklyForecasts ?? fallback.weeklyForecasts,
     alertPolicies: value.alertPolicies ?? [],
+    prospects: value.prospects ?? fallback.prospects,
+    prospectHistory: value.prospectHistory ?? fallback.prospectHistory,
   };
 }
 
