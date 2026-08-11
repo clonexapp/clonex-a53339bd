@@ -11,6 +11,8 @@ import {
 } from "@/lib/reporting";
 import { useAppData } from "@/state/use-app-data";
 import { GoalBattery } from "./goal-battery";
+import { Gamification } from "./management-screens";
+import { PaymentRates } from "./payment-rates";
 import { Card, EmptyState, Progress, StatCard, StatusBadge } from "./dashboard-ui";
 
 interface ScreenProps {
@@ -109,6 +111,7 @@ export function OverviewScreen({
           captures={memberCaptures.slice(0, 4)}
           onOpenCapture={onOpenCapture}
         />
+        <Gamification data={data} personId={member.id} />
       </div>
     );
   }
@@ -548,11 +551,19 @@ export function EquipmentScreen({
   );
 }
 
-export function FinanceScreen({ data, role, onAddPayment, currentTeam }: ScreenProps) {
+export function FinanceScreen({
+  data,
+  role,
+  onAddPayment,
+  currentTeam,
+  currentPersonId,
+}: ScreenProps) {
   const payments = data.payments.filter(
     (payment) =>
       role === "lider" ||
-      data.people.find((person) => person.id === payment.personId)?.team === currentTeam,
+      (role === "membro"
+        ? payment.personId === currentPersonId
+        : data.people.find((person) => person.id === payment.personId)?.team === currentTeam),
   );
   const paid = payments
     .filter((payment) => payment.status === "pago")
@@ -574,6 +585,7 @@ export function FinanceScreen({ data, role, onAddPayment, currentTeam }: ScreenP
           ) : undefined
         }
       />
+      <PaymentRates data={data} />
       <div className="cx-stats-grid">
         <StatCard
           label="Pago no ciclo"

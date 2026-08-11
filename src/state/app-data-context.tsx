@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 
 import type { AccessAccount, AppData, Role } from "@/domain/types";
 import { buildDeviceEmailSequence, clonexDeviceNumber } from "@/lib/device-email";
+import { effectiveAlertPolicy } from "@/lib/alert-policies";
+import { paymentRateForPerson } from "@/lib/pricing";
 import { localAppRepository } from "@/repositories/local-app-repository";
 import { localAssetRepository } from "@/repositories/local-asset-repository";
 import { AppDataContext, type AppDataContextValue } from "@/state/app-data-context-value";
@@ -293,6 +295,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 ...(input.companyId ? { companyId: input.companyId } : {}),
                 workload: input.workload,
                 hourlyRate: input.hourlyRate,
+                paymentPlan: input.paymentPlan,
                 serviceName: input.serviceName,
                 minuteCode: input.minuteCode,
                 memberCode: input.memberCode.trim().toUpperCase(),
@@ -459,8 +462,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       addPayment(input) {
         update((current) => {
           const account = current.accounts.find((item) => item.id === activeAccountId);
+          const person = current.people.find((item) => item.id === input.personId);
           if (
             !canManagePerson(current, account, input.personId) ||
+            !person ||
             !Number.isFinite(input.hours) ||
             !Number.isFinite(input.amount) ||
             !Number.isFinite(input.hourlyRate) ||
@@ -486,6 +491,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           const actor = actorFor(actualRole);
           const occurredAt = new Date().toISOString();
           const cycle = current.cycles.find((item) => item.id === input.cycleId);
+          const rate = paymentRateForPerson(current, person);
           const period = cycle
             ? `${cycle.startsAt.split("-").reverse().slice(0, 2).join("/")}–${cycle.endsAt.split("-").reverse().slice(0, 2).join("/")}`
             : "Período informado";
@@ -493,7 +499,17 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           return {
             ...current,
             payments: [
-              { id, period, registeredAt: occurredAt, registeredBy: actor.actorName, ...input },
+              {
+                id,
+                period,
+                registeredAt: occurredAt,
+                registeredBy: actor.actorName,
+                ...input,
+                hourlyRate: rate.hourlyRate,
+                amount: input.hours * rate.hourlyRate,
+                paymentPlan: person.paymentPlan,
+                rateBand: rate.bandLabel,
+              },
               ...current.payments,
             ],
             auditEvents: [
@@ -509,7 +525,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
                 ...actor,
                 actorRole: actualRole,
                 occurredAt,
-                details: `Registrou pagamento de ${input.hours}h no valor de R$ ${input.amount.toFixed(2)}.`,
+                details: `Registrou pagamento de ${input.hours}h pela faixa ${rate.bandLabel}, a R$ ${rate.hourlyRate.toFixed(2)}/h.`,
               },
               ...current.auditEvents,
             ],
@@ -594,7 +610,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           const needsTriage = Boolean(
             capture &&
             status === "aprovado" &&
-            approvedMinutes >= 600 &&
+            approvedMinutes >=
+              effectiveAlertPolicy(
+                current,
+                current.people.find((person) => person.id === capture.personId),
+              ).values.firstPaymentHours *
+                60 &&
             !current.memberTriages.some((item) => item.personId === capture.personId),
           );
           return {
@@ -997,6 +1018,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             affiliation: "autonomo" as const,
             workload: "full_time" as const,
             hourlyRate: 0,
+            paymentPlan: "celular_proprio" as const,
             serviceName: `Gestão da ${team.name}`,
             minuteCode: `SUB-${input.name.toUpperCase().replace(/[^A-Z0-9]/g, "-")}`,
             memberCode: `SUB-${(team.state ?? input.state).toUpperCase()}-${personId.slice(0, 6).toUpperCase()}`,
@@ -1236,6 +1258,96 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             item.id === personId ? { ...item, weekendAvailability } : item,
           ),
         }));
+      },
+      saveAlertPolicy(input) {
+        update((current) => {
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          if (!account || account.role === "membro") return current;
+          if (
+            account.role === "subleader" &&
+            (input.scope !== "team" || input.teamId !== account.teamId)
+          )
+            return current;
+          const team = input.teamId
+            ? current.teams.find((item) => item.id === input.teamId)
+            : undefined;
+          if (input.scope === "team" && !team) return current;
+          const existing = current.alertPolicies.find(
+            (policy) =>
+              policy.scope === input.scope &&
+              (input.scope === "team"
+                ? policy.teamId === input.teamId
+                : policy.city === input.city),
+          );
+          const occurredAt = new Date().toISOString();
+          const actor = actorFor(account.role);
+          const policy = {
+            id: existing?.id ?? crypto.randomUUID(),
+            scope: input.scope,
+            city: team?.city ?? input.city,
+            ...(input.teamId ? { teamId: input.teamId } : {}),
+            values: input.values,
+            updatedAt: occurredAt,
+            updatedBy: actor.actorName,
+          };
+          return {
+            ...current,
+            alertPolicies: existing
+              ? current.alertPolicies.map((item) => (item.id === existing.id ? policy : item))
+              : [...current.alertPolicies, policy],
+            auditEvents: [
+              {
+                id: crypto.randomUUID(),
+                entity: "alert_policy",
+                entityId: `${input.scope}:${input.teamId ?? input.city}`,
+                action: "alert_policy.updated",
+                category: "meta",
+                ...actor,
+                actorRole: account.role,
+                occurredAt,
+                details: `Atualizou os padrões de alerta de ${team?.name ?? input.city}.`,
+                ...(team ? { team: team.name } : {}),
+              },
+              ...current.auditEvents,
+            ],
+          };
+        });
+      },
+      resetAlertPolicy(scope, city, teamId) {
+        update((current) => {
+          const account = current.accounts.find((item) => item.id === activeAccountId);
+          if (!account || account.role === "membro") return current;
+          if (account.role === "subleader" && (scope !== "team" || teamId !== account.teamId))
+            return current;
+          const team = teamId ? current.teams.find((item) => item.id === teamId) : undefined;
+          const actor = actorFor(account.role);
+          const occurredAt = new Date().toISOString();
+          return {
+            ...current,
+            alertPolicies: current.alertPolicies.filter(
+              (policy) =>
+                !(
+                  policy.scope === scope &&
+                  (scope === "team" ? policy.teamId === teamId : policy.city === city)
+                ),
+            ),
+            auditEvents: [
+              {
+                id: crypto.randomUUID(),
+                entity: "alert_policy",
+                entityId: `${scope}:${teamId ?? city}`,
+                action: "alert_policy.reset",
+                category: "meta",
+                ...actor,
+                actorRole: account.role,
+                occurredAt,
+                details: `Restaurou os padrões herdados de ${team?.name ?? city}.`,
+                ...(team ? { team: team.name } : {}),
+              },
+              ...current.auditEvents,
+            ],
+          };
+        });
       },
       markNoticesRead(role) {
         update((current) => ({

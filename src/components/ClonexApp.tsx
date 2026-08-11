@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   Activity,
@@ -24,6 +25,8 @@ import {
 
 import type { EquipmentType, MetricSource, Role } from "@/domain/types";
 import { buildDeviceEmailSequence, clonexDeviceNumber } from "@/lib/device-email";
+import { useDialogBehavior } from "@/hooks/use-dialog-behavior";
+import { buildOperationalActions, membersForRole } from "@/lib/operations";
 import { AppDataProvider } from "@/state/app-data-context";
 import { useAppData } from "@/state/use-app-data";
 import {
@@ -34,6 +37,7 @@ import {
   OverviewScreen,
 } from "@/components/clonex/screens";
 import { MetricSourcePanel } from "@/components/clonex/metric-source-panel";
+import { InstallPrompt } from "@/components/clonex/install-prompt";
 import { ReportsScreen } from "@/components/clonex/reports-screen";
 import {
   CompanyDialog,
@@ -145,22 +149,37 @@ function ClonexWorkspace() {
   const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(null);
   const [selectedEquipmentId, setSelectedEquipmentId] = useState<string | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
+  const [splashReady, setSplashReady] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSplashReady(true), 3000);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if ("serviceWorker" in navigator) void navigator.serviceWorker.register("/sw.js");
+  }, []);
 
   useEffect(() => {
     if (role === "membro" && activeAccount?.personId) recordAccess(activeAccount.personId);
   }, [role, activeAccount?.personId, recordAccess]);
 
-  if (!data) return <LoadingScreen />;
+  if (!data || !splashReady) return <LoadingScreen />;
   if (!role || !activeAccount)
     return (
-      <AccessScreen
-        data={data}
-        onEnter={(accountId, nextRole) => {
-          warmOperationImages();
-          selectAccount(accountId);
-          setRole(nextRole);
-        }}
-      />
+      <>
+        <AccessScreen
+          data={data}
+          onEnter={(accountId, nextRole) => {
+            warmOperationImages();
+            setTab("overview");
+            setSelectedPersonId(null);
+            selectAccount(accountId);
+            setRole(nextRole);
+          }}
+        />
+        <InstallPrompt />
+      </>
     );
 
   const nav = NAVIGATION[role];
@@ -174,9 +193,14 @@ function ClonexWorkspace() {
             item.key !== "reports" &&
             item.key !== "pending" &&
             item.key !== "activities" &&
-            item.key !== "insights",
+            item.key !== "insights" &&
+            item.key !== "supervisors",
         );
   const notices = data.notices.filter((notice) => notice.role === role);
+  const operationalActions =
+    role === "membro"
+      ? []
+      : buildOperationalActions(data, membersForRole(data, role, activeAccount.teamId));
   const seenEvents = new Set(
     data.activitySeen.filter((item) => item.role === role).map((item) => item.eventId),
   );
@@ -188,10 +212,13 @@ function ClonexWorkspace() {
             !seenEvents.has(event.id) &&
             (role === "lider" || !event.team || event.team === currentTeam),
         ).length;
-  const unread = notices.filter((notice) => !notice.read).length + activityUnread;
+  const unread =
+    notices.filter((notice) => !notice.read).length + activityUnread + operationalActions.length;
 
   function switchRole(nextRole: Role) {
     void nextRole;
+    setTab("overview");
+    setSelectedPersonId(null);
     setRole(null);
     selectAccount(null);
   }
@@ -344,6 +371,16 @@ function ClonexWorkspace() {
                   ) : (
                     <p className="cx-muted">Nenhuma notificação.</p>
                   )}
+                  {operationalActions.slice(0, 4).map((action) => (
+                    <article key={action.id} className={`is-${action.status}`}>
+                      <p>
+                        <strong>{action.title}</strong>
+                        <br />
+                        {action.detail}
+                      </p>
+                      <span>Padrão operacional · {action.team}</span>
+                    </article>
+                  ))}
                   {role !== "membro" ? (
                     <button
                       className="cx-notice-all"
@@ -358,28 +395,29 @@ function ClonexWorkspace() {
                 </div>
               ) : null}
             </div>
+            <button
+              className="cx-user-chip"
+              onClick={() => {
+                setNoticesOpen(false);
+                setHowOpen(false);
+                setSelectedPersonId(null);
+                setTab("profile");
+              }}
+              aria-label="Abrir meu perfil"
+            >
+              <span>
+                {activeAccount.name
+                  .split(" ")
+                  .map((part) => part[0])
+                  .slice(0, 2)
+                  .join("")}
+              </span>
+              <div>
+                <strong>{activeAccount.name}</strong>
+                <small>{ROLE_LABELS[role]}</small>
+              </div>
+            </button>
           </div>
-          <button
-            className="cx-user-chip"
-            onClick={() => {
-              if (role === "membro") setTab("profile");
-              else if (role === "subleader") setTab("profile");
-              else setTab("overview");
-            }}
-            aria-label="Abrir perfil atual"
-          >
-            <span>
-              {activeAccount.name
-                .split(" ")
-                .map((part) => part[0])
-                .slice(0, 2)
-                .join("")}
-            </span>
-            <div>
-              <strong>{activeAccount.name}</strong>
-              <small>{ROLE_LABELS[role]}</small>
-            </div>
-          </button>
         </header>
 
         <main className="cx-content">
@@ -400,7 +438,11 @@ function ClonexWorkspace() {
             </>
           )}
           {tab === "overview" && role === "lider" && (
-            <LeaderOverview data={data} onOpenTeam={setSelectedTeam} />
+            <LeaderOverview
+              data={data}
+              onOpenTeam={setSelectedTeam}
+              onOpenSource={setMetricSource}
+            />
           )}
           {tab === "captures" && <CapturesScreen {...screenProps} />}
           {tab === "goals" && <GoalsScreen {...screenProps} />}
@@ -422,7 +464,7 @@ function ClonexWorkspace() {
               onAddPerson={() => setMemberRegistrationOpen(true)}
             />
           )}
-          {!selectedPersonId && tab === "profile" && (
+          {!selectedPersonId && tab === "profile" && role !== "lider" && (
             <MemberDetailScreen
               data={data}
               personId={activeAccount.personId ?? ""}
@@ -430,6 +472,23 @@ function ClonexWorkspace() {
               onBack={() => setTab("overview")}
               onOpenCapture={setSelectedCaptureId}
             />
+          )}
+          {!selectedPersonId && tab === "profile" && role === "lider" && (
+            <div className="cx-page-stack">
+              <button className="cx-back-button" onClick={() => setTab("overview")}>
+                Voltar à visão geral
+              </button>
+              <section className="cx-card cx-account-profile">
+                <span className="cx-eyebrow">Meu perfil</span>
+                <h1>{activeAccount.name}</h1>
+                <p>{activeAccount.email} · Líder geral</p>
+              </section>
+              <LeaderOverview
+                data={data}
+                onOpenTeam={setSelectedTeam}
+                onOpenSource={setMetricSource}
+              />
+            </div>
           )}
           {!selectedPersonId && tab === "equipment" && <EquipmentScreen {...screenProps} />}
           {!selectedPersonId && tab === "finance" && (
@@ -1165,15 +1224,10 @@ function Dialog({
   onClose(): void;
   children: React.ReactNode;
 }) {
-  useEffect(() => {
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+  useDialogBehavior(onClose);
 
-  return (
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <div
       className="cx-dialog-layer"
       role="presentation"
@@ -1193,7 +1247,8 @@ function Dialog({
         </div>
         {children}
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

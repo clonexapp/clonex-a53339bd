@@ -14,6 +14,8 @@ import type {
   CaptureChangeRequest,
   WeekendAvailability,
   GeographicRegion,
+  AlertPolicy,
+  AlertPolicyValues,
 } from "@/domain/types";
 
 export interface AppDataContextValue {
@@ -83,6 +85,13 @@ export interface AppDataContextValue {
   setMemberActive(personId: string, active: boolean, actorRole: Role): void;
   archiveMember(personId: string, actorRole: Role): void;
   updateWeekendAvailability(personId: string, value: WeekendAvailability): void;
+  saveAlertPolicy(input: {
+    scope: AlertPolicy["scope"];
+    city: string;
+    teamId?: string;
+    values: Partial<AlertPolicyValues>;
+  }): void;
+  resetAlertPolicy(scope: AlertPolicy["scope"], city: string, teamId?: string): void;
   markNoticesRead(role: Role): void;
   recordAccess(personId: string): void;
   markActivitiesSeen(role: Role): void;

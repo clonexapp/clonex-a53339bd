@@ -1612,6 +1612,92 @@ select:focus-visible {
   }
 }
 
+.cx-install-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(13, 13, 12, 0.58);
+  backdrop-filter: blur(8px);
+}
+.cx-install-prompt {
+  position: relative;
+  display: grid;
+  width: min(430px, 100%);
+  gap: 13px;
+  padding: 28px;
+  border-radius: 25px;
+  background: #fff;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.3);
+}
+.cx-install-prompt h2,
+.cx-install-prompt p {
+  margin: 0;
+}
+.cx-install-prompt h2 {
+  max-width: 330px;
+  font-size: 28px;
+  line-height: 1.05;
+  letter-spacing: -0.045em;
+}
+.cx-install-prompt p {
+  color: var(--cx-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.cx-install-icon {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border-radius: 18px;
+  background: #151515;
+  color: #fff;
+}
+.cx-install-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #f2f2ef;
+}
+.cx-install-ios {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--cx-accent-soft);
+  color: #4e3cc6;
+  font-size: 12px;
+  font-weight: 700;
+}
+.cx-install-later {
+  border: 0;
+  background: transparent;
+  color: var(--cx-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+@media (max-width: 600px) {
+  .cx-install-layer {
+    align-items: end;
+    padding: 0;
+  }
+  .cx-install-prompt {
+    width: 100%;
+    padding: 24px 22px max(22px, env(safe-area-inset-bottom));
+    border-radius: 25px 25px 0 0;
+  }
+}
+
 @media (max-width: 980px) {
   .cx-content {
     padding-inline: 25px;
@@ -3719,5 +3805,300 @@ select:focus-visible {
   .cx-role-icon-3d {
     width: 58px;
     height: 58px;
+  }
+}
+
+/* Refinamentos de operação e responsividade */
+body:has(.cx-dialog-layer, .cx-dialog-backdrop, .cx-source-layer) {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.cx-alert-policy-card {
+  display: grid;
+  gap: 18px;
+}
+.cx-alert-policy-card .cx-card-heading p {
+  margin: 5px 0 0;
+  color: var(--cx-muted);
+  font-size: 12px;
+}
+.cx-policy-scope {
+  display: grid;
+  max-width: 420px;
+  gap: 7px;
+  color: var(--cx-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+.cx-policy-scope select,
+.cx-policy-input input {
+  height: 42px;
+  border: 1px solid var(--cx-line);
+  border-radius: 11px;
+  background: #fff;
+}
+.cx-policy-scope select {
+  padding: 0 12px;
+}
+.cx-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.cx-policy-grid > label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--cx-line);
+  border-radius: 13px;
+  background: #fafaf8;
+  font-size: 12px;
+  font-weight: 700;
+}
+.cx-policy-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+}
+.cx-policy-input input {
+  min-width: 0;
+  padding: 0 10px;
+}
+.cx-policy-grid em {
+  color: var(--cx-faint);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 500;
+}
+.cx-policy-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.cx-payment-rates {
+  display: grid;
+  gap: 14px;
+}
+.cx-payment-rate-hero {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.7fr) 1.3fr;
+  align-items: center;
+  gap: 24px;
+  padding: 22px;
+  border-radius: 20px;
+  background: linear-gradient(115deg, #141414 55%, #292345);
+  color: #fff;
+}
+.cx-payment-rate-hero > div {
+  display: grid;
+}
+.cx-payment-rate-hero strong {
+  font-size: clamp(42px, 7vw, 72px);
+  line-height: 0.95;
+  letter-spacing: -0.07em;
+}
+.cx-payment-rate-hero small,
+.cx-payment-rate-hero p {
+  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.55;
+}
+.cx-payment-plans {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.cx-payment-plans section {
+  padding: 18px;
+  border: 1px solid var(--cx-line);
+  border-radius: 16px;
+}
+.cx-payment-plans section.is-current {
+  border-color: var(--cx-accent);
+  box-shadow: inset 0 0 0 1px var(--cx-accent);
+}
+.cx-payment-plans section > span {
+  color: var(--cx-accent);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.cx-payment-plans h3 {
+  margin: 7px 0 14px;
+}
+.cx-payment-plans p {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 11px 0;
+  border-top: 1px solid var(--cx-line);
+  font-size: 12px;
+}
+.cx-payment-plans p b {
+  font-weight: 500;
+}
+.cx-current-rate {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 9px;
+  padding: 14px;
+  border-radius: 15px;
+  background: var(--cx-accent-soft);
+}
+.cx-current-rate span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.cx-current-rate small {
+  color: var(--cx-muted);
+  font-size: 10px;
+}
+.cx-current-rate strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.cx-current-rate p {
+  grid-column: 1 / -1;
+  margin: 3px 0 0;
+  color: var(--cx-muted);
+  font-size: 11px;
+}
+.cx-account-profile h1 {
+  margin: 8px 0;
+}
+.cx-account-profile p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--cx-muted);
+}
+
+@media (max-width: 760px) {
+  .cx-topbar {
+    gap: 8px;
+    padding-inline: 10px;
+  }
+  .cx-mobile-brand {
+    min-width: 0;
+    margin-right: auto;
+  }
+  .cx-topbar-actions {
+    margin-left: 0;
+    gap: 6px;
+  }
+  .cx-help-button,
+  .cx-icon-button,
+  .cx-user-chip {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--cx-line);
+    border-radius: 50%;
+    justify-content: center;
+    background: var(--cx-surface);
+  }
+  .cx-user-chip {
+    display: flex;
+    border-left: 1px solid var(--cx-line);
+  }
+  .cx-user-chip > span {
+    width: 34px;
+    height: 34px;
+  }
+  .cx-user-chip > div {
+    display: none;
+  }
+  .cx-page-heading {
+    position: relative;
+  }
+  .cx-page-heading .cx-button {
+    display: inline-grid;
+    align-self: flex-end;
+    line-height: 1;
+  }
+  .cx-page-heading .cx-button svg {
+    display: block;
+    width: 19px;
+    height: 19px;
+  }
+  .cx-capture-list article {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 5px;
+  }
+  .cx-capture-list-main {
+    width: 100%;
+    grid-template-columns: 38px minmax(0, 1fr) 18px !important;
+    grid-template-rows: auto auto;
+  }
+  .cx-capture-list-copy {
+    display: grid !important;
+    grid-column: 2;
+    grid-row: 1;
+    gap: 3px;
+  }
+  .cx-capture-list-main .cx-badge {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+  }
+  .cx-capture-list-chevron {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+  .cx-capture-list-actions {
+    width: 100%;
+    justify-content: flex-end;
+    padding: 0 5px 7px 50px;
+  }
+  .cx-policy-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .cx-payment-rate-hero,
+  .cx-payment-plans {
+    grid-template-columns: 1fr;
+  }
+  .cx-payment-rate-hero {
+    gap: 14px;
+    padding: 18px;
+  }
+  .cx-current-rate {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 430px) {
+  .cx-menu-button,
+  .cx-help-button,
+  .cx-icon-button,
+  .cx-user-chip {
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+  }
+  .cx-mobile-brand {
+    gap: 6px;
+    font-size: 17px;
+  }
+  .cx-policy-grid,
+  .cx-current-rate {
+    grid-template-columns: 1fr;
+  }
+  .cx-current-rate p,
+  .cx-policy-actions {
+    grid-column: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cx-loading-dots i {
+    animation: none;
+    opacity: 0.65;
   }
 }

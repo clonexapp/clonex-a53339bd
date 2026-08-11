@@ -16,10 +16,12 @@ import { Card, EmptyState, StatusBadge } from "@/components/clonex/dashboard-ui"
 import { GoalBattery } from "@/components/clonex/goal-battery";
 import { Gamification } from "@/components/clonex/management-screens";
 import { SupervisorManual } from "@/components/clonex/supervisor-manual";
+import { PaymentRates } from "@/components/clonex/payment-rates";
 import type { AppData, GeographicRegion, Role } from "@/domain/types";
 import { formatDate, formatHours, formatMoney } from "@/lib/formatters";
 import { BRAZIL_STATES, GEOGRAPHIC_REGIONS, regionForState } from "@/lib/locations";
 import { approvedMinutes, memberProjection } from "@/lib/operations";
+import { effectiveAlertPolicy } from "@/lib/alert-policies";
 import { useAppData } from "@/state/use-app-data";
 
 function personMinutes(data: AppData, personId: string) {
@@ -225,6 +227,7 @@ export function MemberDetailScreen({
   const captures = data.captures.filter((item) => item.personId === person.id);
   const payments = data.payments.filter((item) => item.personId === person.id);
   const projection = memberProjection(data, person);
+  const alertPolicy = effectiveAlertPolicy(data, person).values;
   const declaration = data.consentDeclarations.find((item) => item.personId === person.id);
   const triage = data.memberTriages.find(
     (item) => item.personId === person.id && item.status === "pendente",
@@ -445,12 +448,17 @@ export function MemberDetailScreen({
                   <strong>{projection.projection.toFixed(1)}h</strong>
                 </span>
                 <span>
-                  <small>Até 10h</small>
-                  <strong>{Math.max(0, 10 - projection.hours).toFixed(1)}h</strong>
+                  <small>Até primeiro pagamento</small>
+                  <strong>
+                    {Math.max(0, alertPolicy.firstPaymentHours - projection.hours).toFixed(1)}h
+                  </strong>
                 </span>
                 <span>
-                  <small>Até 60h</small>
-                  <strong>{Math.max(0, 60 - projection.hours).toFixed(1)}h</strong>
+                  <small>Até retenção do equipamento</small>
+                  <strong>
+                    {Math.max(0, alertPolicy.equipmentRetentionHours - projection.hours).toFixed(1)}
+                    h
+                  </strong>
                 </span>
                 <span>
                   <small>Até a meta</small>
@@ -670,6 +678,7 @@ export function MemberDetailScreen({
         </Card>
       ) : null}
       <Gamification data={data} personId={person.id} />
+      <PaymentRates data={data} person={person} />
       <Card>
         <div className="cx-card-heading">
           <div>

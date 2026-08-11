@@ -8,6 +8,7 @@ import {
   Filter,
   HardHat,
   History,
+  Plus,
   Smartphone,
   Target,
   Users,
@@ -15,6 +16,8 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { useDialogBehavior } from "@/hooks/use-dialog-behavior";
+import { effectiveAlertPolicy } from "@/lib/alert-policies";
 
 import type {
   AccessAccount,
@@ -23,6 +26,7 @@ import type {
   Capture,
   Equipment,
   GeographicRegion,
+  MetricSource,
   Role,
 } from "@/domain/types";
 import { formatDate, formatHours, formatMoney } from "@/lib/formatters";
@@ -38,6 +42,7 @@ import {
 import { useAppData } from "@/state/use-app-data";
 import { Card, Progress, StatCard, StatusBadge } from "./dashboard-ui";
 import { GoalBattery } from "./goal-battery";
+import { AlertPolicyEditor } from "./alert-policy-editor";
 
 export function ConsentKpis({ data, members }: { data: AppData; members: AppData["people"] }) {
   const operating = members.filter(
@@ -136,6 +141,7 @@ export function ActivitiesScreen({
           <History size={17} /> Histórico <b>{events.length}</b>
         </button>
       </div>
+      <AlertPolicyEditor data={data} role={role} />
       <Card className="cx-activity-filters">
         <Filter size={17} />
         <select value={team} onChange={(e) => setTeam(e.target.value)}>
@@ -296,9 +302,11 @@ export function InsightsScreen({
 export function LeaderOverview({
   data,
   onOpenTeam,
+  onOpenSource,
 }: {
   data: AppData;
   onOpenTeam(team: string): void;
+  onOpenSource(source: MetricSource): void;
 }) {
   const members = data.people.filter((person) => person.role === "membro" && !person.archivedAt);
   const approved = members.reduce((sum, person) => sum + approvedMinutes(data, person.id), 0);
@@ -314,6 +322,33 @@ export function LeaderOverview({
     0,
   );
   const actions = buildOperationalActions(data, members);
+  function source(
+    title: string,
+    value: string,
+    actual: string,
+    formula: string,
+    percentage: number,
+  ): MetricSource {
+    return {
+      metric: "active_people",
+      title,
+      value,
+      percentage: Math.max(0, Math.round(percentage)),
+      actual,
+      formula,
+      origin: "Cadastros, ciclos, equipamentos e eventos auditados do Clonex.",
+      updatedAt: data.auditEvents[0]?.occurredAt ?? "Sem atualizações",
+      history: data.auditEvents.slice(0, 8).map((event) => ({
+        id: event.id,
+        ...(event.targetPersonId ? { personId: event.targetPersonId } : {}),
+        actorName: event.actorName,
+        summary: event.details,
+        value: event.category,
+        occurredAt: event.occurredAt,
+        captureIds: event.entity === "capture" ? [event.entityId] : [],
+      })),
+    };
+  }
   return (
     <div className="cx-page-stack">
       <div className="cx-page-heading">
@@ -329,32 +364,132 @@ export function LeaderOverview({
           value={formatHours(approved)}
           detail={`${projection.toFixed(1)}h projetadas`}
           tone="accent"
+          onClick={() =>
+            onOpenSource(
+              source(
+                "Horas aprovadas",
+                formatHours(approved),
+                `${projection.toFixed(1)}h projetadas`,
+                "Soma da duração das capturas aprovadas de todos os membros ativos.",
+                goal ? (approved / 60 / goal) * 100 : 0,
+              ),
+            )
+          }
         />
         <StatCard
           label="Meta somada"
           value={`${goal}h`}
           detail={`${goal ? Math.round((approved / 60 / goal) * 100) : 0}% realizado`}
+          onClick={() =>
+            onOpenSource(
+              source(
+                "Meta somada",
+                `${goal}h`,
+                `${formatHours(approved)} realizados`,
+                "Soma das metas individuais dos ciclos ativos.",
+                goal ? (approved / 60 / goal) * 100 : 0,
+              ),
+            )
+          }
         />
         <StatCard
           label="Membros full / part"
           value={`${members.filter((p) => p.workload === "full_time").length} / ${members.filter((p) => p.workload === "part_time").length}`}
           detail="Jornadas ativas"
+          onClick={() =>
+            onOpenSource(
+              source(
+                "Membros por jornada",
+                `${members.filter((p) => p.workload === "full_time").length} / ${members.filter((p) => p.workload === "part_time").length}`,
+                "Full time / Part time",
+                "Contagem de membros ativos agrupados pelo regime cadastrado.",
+                members.length
+                  ? (members.filter((person) => person.workload === "full_time").length /
+                      members.length) *
+                      100
+                  : 0,
+              ),
+            )
+          }
         />
         <StatCard
           label="Equipamentos full / part"
           value={`${data.equipmentAssignments.filter((a) => a.active && a.workload === "full_time").length} / ${data.equipmentAssignments.filter((a) => a.active && a.workload === "part_time").length}`}
           detail="Alocações vigentes"
+          onClick={() =>
+            onOpenSource(
+              source(
+                "Equipamentos por regime",
+                `${data.equipmentAssignments.filter((a) => a.active && a.workload === "full_time").length} / ${data.equipmentAssignments.filter((a) => a.active && a.workload === "part_time").length}`,
+                "Full time / Part time",
+                "Contagem das alocações de equipamento atualmente ativas.",
+                data.equipmentAssignments.filter((assignment) => assignment.active).length
+                  ? (data.equipmentAssignments.filter(
+                      (assignment) => assignment.active && assignment.workload === "full_time",
+                    ).length /
+                      data.equipmentAssignments.filter((assignment) => assignment.active).length) *
+                      100
+                  : 0,
+              ),
+            )
+          }
         />
         <StatCard
-          label="Elegíveis 10h"
-          value={String(members.filter((p) => approvedMinutes(data, p.id) >= 600).length)}
+          label="Elegíveis pela política"
+          value={String(
+            members.filter(
+              (person) =>
+                approvedMinutes(data, person.id) >=
+                effectiveAlertPolicy(data, person).values.firstPaymentHours * 60,
+            ).length,
+          )}
           detail="Primeiro pagamento"
+          onClick={() =>
+            onOpenSource(
+              source(
+                "Elegíveis pela política",
+                String(
+                  members.filter(
+                    (person) =>
+                      approvedMinutes(data, person.id) >=
+                      effectiveAlertPolicy(data, person).values.firstPaymentHours * 60,
+                  ).length,
+                ),
+                "Membros que atingiram o limite da própria equipe",
+                "Horas aprovadas ≥ limite efetivo de primeiro pagamento.",
+                members.length
+                  ? (members.filter(
+                      (person) =>
+                        approvedMinutes(data, person.id) >=
+                        effectiveAlertPolicy(data, person).values.firstPaymentHours * 60,
+                    ).length /
+                      members.length) *
+                      100
+                  : 0,
+              ),
+            )
+          }
         />
         <StatCard
-          label="Risco abaixo de 60h"
+          label="Risco de retenção"
           value={String(actions.filter((a) => a.id.startsWith("retention")).length)}
           detail="Pela projeção atual"
           tone="warning"
+          onClick={() =>
+            onOpenSource(
+              source(
+                "Risco de retenção",
+                String(actions.filter((a) => a.id.startsWith("retention")).length),
+                "Membros abaixo da projeção definida",
+                "Projeção do ciclo abaixo do limite efetivo da equipe ou da meta mínima.",
+                members.length
+                  ? (actions.filter((action) => action.id.startsWith("retention")).length /
+                      members.length) *
+                      100
+                  : 0,
+              ),
+            )
+          }
         />
       </div>
       <ConsentKpis data={data} members={members} />
@@ -430,11 +565,7 @@ function SupervisorAccountDialog({
   const [city, setCity] = useState(accountTeam?.city ?? "Juiz de Fora");
   const isNewTeam = teamChoice === "__new__";
 
-  useEffect(() => {
-    const close = (event: KeyboardEvent) => event.key === "Escape" && onClose();
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [onClose]);
+  useDialogBehavior(onClose);
 
   if (typeof document === "undefined") return null;
 
@@ -606,7 +737,7 @@ export function SupervisorsScreen({
           <p>Contas pendentes, responsáveis, operação e riscos por equipe.</p>
         </div>
         <button className="cx-button" onClick={() => setEditing("new")}>
-          Cadastrar Sublíder
+          <Plus size={17} /> Cadastrar Sublíder
         </button>
       </div>
       <div className="cx-team-grid">

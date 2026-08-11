@@ -20,6 +20,7 @@ export type AuditCategory =
 export type ConsentMode = "upload" | "fisico" | "digital";
 export type AccountStatus = "pendente" | "ativa" | "desativada";
 export type WeekendAvailability = "nenhum" | "sabado" | "domingo" | "ambos";
+export type PaymentPlan = "celular_proprio" | "celular_clonex";
 export type GeographicRegion =
   "Norte" | "Nordeste" | "Centro-Oeste" | "Sudeste" | "Sul" | "Internacional";
 
@@ -32,7 +33,28 @@ export type AuditEntity =
   | "company"
   | "cycle"
   | "consent"
-  | "assignment";
+  | "assignment"
+  | "alert_policy";
+
+export interface AlertPolicyValues {
+  inactivityDays: number;
+  reviewDeadlineHours: number;
+  minimumConsentCoveragePercent: number;
+  minimumQualityPercent: number;
+  minimumProjectedGoalPercent: number;
+  firstPaymentHours: number;
+  equipmentRetentionHours: number;
+}
+
+export interface AlertPolicy {
+  id: string;
+  scope: "city" | "team";
+  city: string;
+  teamId?: string;
+  values: Partial<AlertPolicyValues>;
+  updatedAt: string;
+  updatedBy: string;
+}
 
 export interface ReportScope {
   kind: "person" | "team" | "city" | "state" | "region" | "country";
@@ -57,6 +79,7 @@ export interface Person {
   companyId?: string;
   workload: WorkloadType;
   hourlyRate: number;
+  paymentPlan: PaymentPlan;
   serviceName: string;
   supervisorId?: string | undefined;
   minuteCode: string;
@@ -227,6 +250,8 @@ export interface Payment {
   captureIds: string[];
   equipmentIds: string[];
   hourlyRate: number;
+  paymentPlan?: PaymentPlan;
+  rateBand?: string;
   registeredAt: string;
   registeredBy: string;
 }
@@ -316,6 +341,7 @@ export interface AppData {
   activitySeen: ActivitySeen[];
   memberTriages: MemberTriage[];
   weeklyForecasts: WeeklyBusinessForecast[];
+  alertPolicies: AlertPolicy[];
 }
 
 export interface NewCapture {
@@ -350,6 +376,7 @@ export interface NewPerson {
   companyId?: string;
   workload: WorkloadType;
   hourlyRate: number;
+  paymentPlan: PaymentPlan;
   goalHours: number;
   targetDaysPerWeek: number;
   cycleStartsAt: string;

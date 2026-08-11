@@ -1,4 +1,5 @@
 import type { AppData, AuditCategory, Person } from "@/domain/types";
+import { effectiveAlertPolicy } from "@/lib/alert-policies";
 
 const DAY = 86_400_000;
 
@@ -120,10 +121,22 @@ export interface OperationalAction {
 export function buildOperationalActions(data: AppData, members: Person[]): OperationalAction[] {
   const actions: OperationalAction[] = [];
   for (const person of members.filter((item) => item.active)) {
+    const policy = effectiveAlertPolicy(data, person).values;
     const cycle = data.cycles.find(
       (item) => item.personId === person.id && item.status === "ativo",
     );
-    if (cycle && !hasValidConsent(data, person.id))
+    const teamMembers = members.filter(
+      (item) => item.teamId === person.teamId || item.team === person.team,
+    );
+    const consentCoverage = teamMembers.length
+      ? (teamMembers.filter((item) => hasValidConsent(data, item.id)).length / teamMembers.length) *
+        100
+      : 100;
+    if (
+      cycle &&
+      !hasValidConsent(data, person.id) &&
+      consentCoverage < policy.minimumConsentCoveragePercent
+    )
       actions.push({
         id: `consent-${person.id}`,
         category: "consentimento",
@@ -134,35 +147,80 @@ export function buildOperationalActions(data: AppData, members: Person[]): Opera
         team: person.team,
       });
     const projection = memberProjection(data, person);
-    if (cycle && projection.projection < 60)
+    const projectedGoalPercent = projection.goal
+      ? (projection.projection / projection.goal) * 100
+      : 100;
+    if (
+      cycle &&
+      (projection.projection < policy.equipmentRetentionHours ||
+        projectedGoalPercent < policy.minimumProjectedGoalPercent)
+    )
       actions.push({
         id: `retention-${person.id}`,
         category: "meta",
         title: "Risco para manutenção do equipamento",
-        detail: `${person.name} projeta ${projection.projection.toFixed(1)}h; o mínimo é 60h.`,
+        detail: `${person.name} projeta ${projection.projection.toFixed(1)}h; os padrões exigem ${policy.equipmentRetentionHours}h e ${policy.minimumProjectedGoalPercent}% da meta.`,
         status: "atencao",
         personId: person.id,
         team: person.team,
       });
-    if (projection.hours >= 10 && !data.payments.some((payment) => payment.personId === person.id))
+    if (
+      projection.hours >= policy.firstPaymentHours &&
+      !data.payments.some((payment) => payment.personId === person.id)
+    )
       actions.push({
         id: `payment-${person.id}`,
         category: "pagamento",
         title: "Primeiro pagamento elegível",
-        detail: `Sugerir 10h × R$ ${person.hourlyRate.toFixed(2)} para ${person.name}.`,
+        detail: `${person.name} atingiu ${policy.firstPaymentHours}h e está elegível para o primeiro pagamento.`,
         status: "informativo",
+        personId: person.id,
+        team: person.team,
+      });
+    const personCaptures = data.captures.filter((capture) => capture.personId === person.id);
+    const latestCapture = personCaptures
+      .map((capture) => new Date(capture.recordedAt).getTime())
+      .reduce((latest, value) => Math.max(latest, value), 0);
+    if (latestCapture && Date.now() - latestCapture >= policy.inactivityDays * DAY)
+      actions.push({
+        id: `inactivity-${person.id}`,
+        category: "pessoa",
+        title: "Membro sem atividade",
+        detail: `${person.name} está há pelo menos ${policy.inactivityDays} dias sem registrar captura.`,
+        status: "atencao",
+        personId: person.id,
+        team: person.team,
+      });
+    const reviewed = personCaptures.filter((capture) =>
+      ["aprovado", "reprovado"].includes(capture.status),
+    );
+    const quality = reviewed.length
+      ? (reviewed.filter((capture) => capture.status === "aprovado").length / reviewed.length) * 100
+      : 100;
+    if (reviewed.length >= 5 && quality < policy.minimumQualityPercent)
+      actions.push({
+        id: `quality-${person.id}`,
+        category: "captura",
+        title: "Qualidade abaixo do padrão",
+        detail: `${person.name} está com ${quality.toFixed(0)}% de aprovação; o mínimo é ${policy.minimumQualityPercent}%.`,
+        status: "atencao",
         personId: person.id,
         team: person.team,
       });
   }
   for (const capture of data.captures.filter((item) => item.status === "pendente")) {
     const person = data.people.find((item) => item.id === capture.personId);
-    if (person && members.some((item) => item.id === person.id))
+    const deadline = person ? effectiveAlertPolicy(data, person).values.reviewDeadlineHours : 48;
+    if (
+      person &&
+      members.some((item) => item.id === person.id) &&
+      Date.now() - new Date(capture.recordedAt).getTime() >= deadline * 3_600_000
+    )
       actions.push({
         id: `review-${capture.id}`,
         category: "captura",
         title: "Captura aguardando revisão",
-        detail: `${person.name}: ${capture.activity}.`,
+        detail: `${person.name}: ${capture.activity} aguarda revisão há mais de ${deadline}h.`,
         status: "atencao",
         personId: person.id,
         team: person.team,
@@ -190,7 +248,7 @@ export function buildOperationalActions(data: AppData, members: Person[]): Opera
       actions.push({
         id: `triage-${triage.id}`,
         category: "pessoa",
-        title: "Triagem de 10h pendente",
+        title: "Triagem de primeiro pagamento pendente",
         detail: `Defina a continuidade de ${person.name}.`,
         status: "atencao",
         personId: person.id,

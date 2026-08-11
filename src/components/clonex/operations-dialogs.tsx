@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
-import type { AffiliationType, GeographicRegion, Role, WorkloadType } from "@/domain/types";
+import type {
+  AffiliationType,
+  GeographicRegion,
+  PaymentPlan,
+  Role,
+  WorkloadType,
+} from "@/domain/types";
 import { formatHours, formatMoney } from "@/lib/formatters";
 import { BRAZIL_STATES, GEOGRAPHIC_REGIONS, locationCode, regionForState } from "@/lib/locations";
+import { calculatePaymentRate, paymentRateForPerson } from "@/lib/pricing";
 import { useAppData } from "@/state/use-app-data";
+import { useDialogBehavior } from "@/hooks/use-dialog-behavior";
 
 function Modal({
   title,
@@ -16,12 +25,9 @@ function Modal({
   children: ReactNode;
   onClose(): void;
 }) {
-  useEffect(() => {
-    const close = (event: KeyboardEvent) => event.key === "Escape" && onClose();
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [onClose]);
-  return (
+  useDialogBehavior(onClose);
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <div
       className="cx-dialog-backdrop"
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
@@ -40,7 +46,8 @@ function Modal({
         <p>{description}</p>
         {children}
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -112,7 +119,9 @@ export function MemberRegistrationDialog({ role, onClose }: { role: Role; onClos
         affiliation,
         ...(affiliation === "empresa" && companyId ? { companyId } : {}),
         workload: String(form.get("workload")) as WorkloadType,
-        hourlyRate: Number(form.get("hourlyRate")),
+        paymentPlan: String(form.get("paymentPlan")) as PaymentPlan,
+        hourlyRate: calculatePaymentRate(String(form.get("paymentPlan")) as PaymentPlan, 0)
+          .hourlyRate,
         goalHours: Number(form.get("goalHours")),
         targetDaysPerWeek: Number(form.get("targetDaysPerWeek")),
         cycleStartsAt: String(form.get("cycleStartsAt")),
@@ -258,8 +267,11 @@ export function MemberRegistrationDialog({ role, onClose }: { role: Role; onClos
             </select>
           </label>
           <label>
-            Valor por hora
-            <input name="hourlyRate" type="number" min="0" step="0.01" defaultValue="15" required />
+            Plano de pagamento
+            <select name="paymentPlan" defaultValue="celular_clonex">
+              <option value="celular_proprio">Celular próprio · R$ 12–15/h</option>
+              <option value="celular_clonex">Kit Clonex · R$ 10–15/h</option>
+            </select>
           </label>
           <label>
             Início do ciclo
@@ -335,11 +347,13 @@ export function PaymentDialog({ role, onClose }: { role: Role; onClose(): void }
             item.recordedAt.slice(0, 10) <= cycle.endsAt)),
     );
     const hours = captures.reduce((sum, item) => sum + item.minutes, 0) / 60;
+    const rate = person ? paymentRateForPerson(data, person) : null;
     return {
       person,
       cycle,
       captures,
       hours,
+      rate,
       equipmentIds: [...new Set(captures.map((item) => item.equipmentId))],
     };
   }, [data, personId]);
@@ -352,8 +366,8 @@ export function PaymentDialog({ role, onClose }: { role: Role; onClose(): void }
         personId,
         ...(suggestion?.cycle ? { cycleId: suggestion.cycle.id } : {}),
         hours: Number(form.get("hours")),
-        hourlyRate: Number(form.get("hourlyRate")),
-        amount: Number(form.get("amount")),
+        hourlyRate: suggestion?.rate?.hourlyRate ?? 0,
+        amount: Number(form.get("hours")) * (suggestion?.rate?.hourlyRate ?? 0),
         captureIds: suggestion?.captures.map((item) => item.id) ?? [],
         equipmentIds: suggestion?.equipmentIds ?? [],
         status: String(form.get("status")) as "previsto" | "pago",
@@ -362,7 +376,7 @@ export function PaymentDialog({ role, onClose }: { role: Role; onClose(): void }
     );
     onClose();
   }
-  const amount = suggestion.hours * suggestion.person.hourlyRate;
+  const amount = suggestion.hours * (suggestion.rate?.hourlyRate ?? 0);
   return (
     <Modal
       title="Registrar pagamento"
@@ -404,6 +418,7 @@ export function PaymentDialog({ role, onClose }: { role: Role; onClose(): void }
               step="0.01"
               defaultValue={suggestion.hours.toFixed(2)}
               key={`hours-${personId}`}
+              readOnly
             />
           </label>
           <label>
@@ -413,8 +428,9 @@ export function PaymentDialog({ role, onClose }: { role: Role; onClose(): void }
               type="number"
               min="0"
               step="0.01"
-              defaultValue={suggestion.person.hourlyRate}
+              value={suggestion.rate?.hourlyRate ?? 0}
               key={`rate-${personId}`}
+              readOnly
             />
           </label>
           <label>
@@ -426,6 +442,7 @@ export function PaymentDialog({ role, onClose }: { role: Role; onClose(): void }
               step="0.01"
               defaultValue={amount.toFixed(2)}
               key={`amount-${personId}`}
+              readOnly
             />
           </label>
           <label>

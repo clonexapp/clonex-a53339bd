@@ -2,8 +2,9 @@ import { seedData } from "@/data/seed";
 import type { AccessAccount, AppData, Person } from "@/domain/types";
 import type { AppRepository } from "@/repositories/app-repository";
 
-const STORAGE_KEY = "clonex:app-data:v6";
+const STORAGE_KEY = "clonex:app-data:v7";
 const PREVIOUS_KEYS = [
+  "clonex:app-data:v6",
   "clonex:app-data:v5",
   "clonex:app-data:v4",
   "clonex:app-data:v3",
@@ -50,6 +51,7 @@ function migratedTeam(name: string) {
 function normalizeData(value: Partial<AppData>): AppData {
   const fallback = cloneSeed();
   const sourcePeople = value.people ?? fallback.people;
+  const sourceEquipment = value.equipment ?? fallback.equipment;
   const people: Person[] = sourcePeople.map((person, index) => {
     const team = migratedTeam(person.team);
     return {
@@ -63,6 +65,16 @@ function normalizeData(value: Partial<AppData>): AppData {
       affiliation: person.affiliation ?? "autonomo",
       workload: person.workload ?? "full_time",
       hourlyRate: person.hourlyRate ?? 15,
+      paymentPlan:
+        person.paymentPlan ??
+        (sourceEquipment.some(
+          (equipment) =>
+            equipment.assignedTo === person.id &&
+            equipment.type === "celular" &&
+            equipment.owner === "clonex",
+        )
+          ? "celular_clonex"
+          : "celular_proprio"),
       serviceName: person.serviceName ?? "Captura de atividades operacionais",
       supervisorId:
         person.supervisorId ??
@@ -135,7 +147,7 @@ function normalizeData(value: Partial<AppData>): AppData {
     });
   }
 
-  const equipmentSource = value.equipment ?? fallback.equipment;
+  const equipmentSource = sourceEquipment;
   let nextDeviceNumber = 1;
   const equipment = equipmentSource.map((item, index) => {
     const person = people.find((candidate) => candidate.id === item.assignedTo);
@@ -217,7 +229,14 @@ function normalizeData(value: Partial<AppData>): AppData {
     consentRecords,
     consentDeclarations,
     policyAcceptances: value.policyAcceptances ?? [],
-    payments: value.payments ?? fallback.payments,
+    payments: (value.payments ?? fallback.payments).map((payment) => {
+      const person = people.find((item) => item.id === payment.personId);
+      return {
+        ...payment,
+        paymentPlan: payment.paymentPlan ?? person?.paymentPlan ?? "celular_proprio",
+        rateBand: payment.rateBand ?? "Histórico anterior",
+      };
+    }),
     notices: value.notices ?? fallback.notices,
     auditEvents: (value.auditEvents ?? fallback.auditEvents).map((event) => ({
       ...event,
@@ -227,6 +246,7 @@ function normalizeData(value: Partial<AppData>): AppData {
     activitySeen: value.activitySeen ?? [],
     memberTriages: value.memberTriages ?? [],
     weeklyForecasts: value.weeklyForecasts ?? fallback.weeklyForecasts,
+    alertPolicies: value.alertPolicies ?? [],
   };
 }
 
